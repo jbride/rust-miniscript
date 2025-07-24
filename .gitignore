@@ -23,3 +23,5 @@ fuzz/hfuzz_workspace
 
 #Intergration test files
 integration_test/bitcoin-*
+
+rust-bitcoin

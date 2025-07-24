@@ -11,6 +11,7 @@ use core::{cmp, fmt, mem};
 use bitcoin::hashes::hash160;
 use bitcoin::key::XOnlyPublicKey;
 use bitcoin::taproot::{ControlBlock, LeafVersion, TapLeafHash, TapNodeHash};
+use bitcoin::p2qrh::P2qrhControlBlock;
 use bitcoin::{absolute, relative, ScriptBuf, Sequence};
 use sync::Arc;
 
@@ -605,6 +606,8 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     TapScript(ScriptBuf),
     /// Taproot control block
     TapControlBlock(ControlBlock),
+
+    P2qrhContolBlock(P2qrhControlBlock)
 }
 
 impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
@@ -636,6 +639,11 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
             TapControlBlock(control_block) => write!(
                 f,
                 "TapControlBlock(control_block: {})",
+                bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
+            ),
+            P2qrhContolBlock(control_block) => write!(
+                f,
+                "P2qrhContolBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
         }
@@ -697,6 +705,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
             Placeholder::PushOne => Some(vec![1]),
             Placeholder::TapScript(s) => Some(s.to_bytes()),
             Placeholder::TapControlBlock(cb) => Some(cb.serialize()),
+            Placeholder::P2qrhContolBlock(cb) => Some(cb.serialize()),
         }
     }
 }

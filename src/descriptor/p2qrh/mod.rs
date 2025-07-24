@@ -18,19 +18,17 @@ use crate::prelude::*;
 use crate::util::{varint_len, witness_size};
 use crate::{
     Error, ForEachKey, FromStrKey, MiniscriptKey, ParseError, Satisfier, ScriptContext, Tap,
-    Threshold, ToPublicKey, TranslateErr, Translator,
+    Threshold, ToPublicKey, TranslateErr, Translator
 };
+use crate::descriptor::tr::{TapTree, TapTreeIter};
 
 mod spend_info;
-pub(crate) mod taptree;
 
-pub use self::spend_info::{TrSpendInfo, TrSpendInfoIter, TrSpendInfoIterItem};
-pub use self::taptree::{TapTree, TapTreeDepthError, TapTreeIter, TapTreeIterItem};
+pub use self::spend_info::{QrhSpendInfo, QrhSpendInfoIter, QrhSpendInfoIterItem};
 
 /// A taproot descriptor
 pub struct Tr<Pk: MiniscriptKey> {
-    /// A taproot internal key
-    internal_key: Pk,
+
     /// Optional Taproot Tree with spending conditions
     tree: Option<TapTree<Pk>>,
     /// Optional spending information associated with the descriptor
@@ -40,7 +38,7 @@ pub struct Tr<Pk: MiniscriptKey> {
     // The inner `Arc` here is because Rust does not allow us to return a reference
     // to the contents of the `Option` from inside a `MutexGuard`. There is no outer
     // `Arc` because when this structure is cloned, we create a whole new mutex.
-    spend_info: Mutex<Option<Arc<TrSpendInfo<Pk>>>>,
+    spend_info: Mutex<Option<Arc<QrhSpendInfo<Pk>>>>,
 }
 
 impl<Pk: MiniscriptKey> Clone for Tr<Pk> {
@@ -49,7 +47,7 @@ impl<Pk: MiniscriptKey> Clone for Tr<Pk> {
         // cause blocking between each other. We clone only the internal `Arc`,
         // so the clone is always cheap (in both time and space)
         Self {
-            internal_key: self.internal_key.clone(),
+            
             tree: self.tree.clone(),
             spend_info: Mutex::new(
                 self.spend_info
@@ -64,7 +62,7 @@ impl<Pk: MiniscriptKey> Clone for Tr<Pk> {
 
 impl<Pk: MiniscriptKey> PartialEq for Tr<Pk> {
     fn eq(&self, other: &Self) -> bool {
-        self.internal_key == other.internal_key && self.tree == other.tree
+        self.tree == other.tree
     }
 }
 
@@ -76,30 +74,21 @@ impl<Pk: MiniscriptKey> PartialOrd for Tr<Pk> {
 
 impl<Pk: MiniscriptKey> Ord for Tr<Pk> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        match self.internal_key.cmp(&other.internal_key) {
-            cmp::Ordering::Equal => {}
-            ord => return ord,
-        }
         self.tree.cmp(&other.tree)
     }
 }
 
 impl<Pk: MiniscriptKey> hash::Hash for Tr<Pk> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.internal_key.hash(state);
         self.tree.hash(state);
     }
 }
 
 impl<Pk: MiniscriptKey> Tr<Pk> {
     /// Create a new [`Tr`] descriptor from internal key and [`TapTree`]
-    pub fn new(internal_key: Pk, tree: Option<TapTree<Pk>>) -> Result<Self, Error> {
-        Tap::check_pk(&internal_key)?;
-        Ok(Self { internal_key, tree, spend_info: Mutex::new(None) })
+    pub fn new(tree: Option<TapTree<Pk>>) -> Result<Self, Error> {
+        Ok(Self { tree, spend_info: Mutex::new(None) })
     }
-
-    /// Obtain the internal key of [`Tr`] descriptor
-    pub fn internal_key(&self) -> &Pk { &self.internal_key }
 
     /// Obtain the [`TapTree`] of the [`Tr`] descriptor
     pub fn tap_tree(&self) -> Option<&TapTree<Pk>> { self.tree.as_ref() }
@@ -125,7 +114,7 @@ impl<Pk: MiniscriptKey> Tr<Pk> {
     /// This data is needed to compute the Taproot output, so this method is implicitly
     /// called through [`Self::script_pubkey`], [`Self::address`], etc. It is also needed
     /// to compute the hash needed to sign the output.
-    pub fn spend_info(&self) -> Arc<TrSpendInfo<Pk>>
+    pub fn spend_info(&self) -> Arc<QrhSpendInfo<Pk>>
     where
         Pk: ToPublicKey,
     {
@@ -133,7 +122,7 @@ impl<Pk: MiniscriptKey> Tr<Pk> {
         match *lock {
             Some(ref res) => Arc::clone(res),
             None => {
-                let arc = Arc::new(TrSpendInfo::from_tr(self));
+                let arc = Arc::new(QrhSpendInfo::from_tr(self));
                 *lock = Some(Arc::clone(&arc));
                 arc
             }
@@ -260,7 +249,7 @@ impl<Pk: MiniscriptKey> Tr<Pk> {
             None => None,
         };
         let translate_desc =
-            Tr::new(translate.pk(&self.internal_key)?, tree).map_err(TranslateErr::OuterError)?;
+            Tr::new(tree).map_err(TranslateErr::OuterError)?;
         Ok(translate_desc)
     }
 }
@@ -268,22 +257,20 @@ impl<Pk: MiniscriptKey> Tr<Pk> {
 impl<Pk: MiniscriptKey + ToPublicKey> Tr<Pk> {
     /// Obtains the corresponding script pubkey for this descriptor.
     pub fn script_pubkey(&self) -> ScriptBuf {
-        let output_key = self.spend_info().output_key();
         let builder = bitcoin::blockdata::script::Builder::new();
         builder
             .push_opcode(opcodes::all::OP_PUSHNUM_1)
-            .push_slice(output_key.serialize())
             .into_script()
     }
 
     /// Obtains the corresponding address for this descriptor.
     pub fn address(&self, network: Network) -> Address {
         let spend_info = self.spend_info();
-        Address::p2tr_tweaked(spend_info.output_key(), network)
+        Address::p2qrh(spend_info.merkle_root(), network)
     }
 
-    /// Returns satisfying non-malleable witness and scriptSig with minimum
-    /// weight to spend an output controlled by the given descriptor if it is
+        /// Returns satisfying non-malleable witness and scriptSig with minimum
+        /// weight to spend an output controlled by the given descriptor if it is
     /// possible to construct one using the `satisfier`.
     pub fn get_satisfaction<S>(&self, satisfier: &S) -> Result<(Vec<Vec<u8>>, ScriptBuf), Error>
     where
@@ -362,18 +349,14 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Tr<Pk> {
             .map_err(Error::Parse)?;
 
         let mut root_children = root.children();
-        let internal_key: Pk = root_children
-            .next()
-            .unwrap() // `verify_toplevel` above checked that first child existed
-            .verify_terminal("internal key")
-            .map_err(Error::Parse)?;
+
 
         let tap_tree = match root_children.next() {
-            None => return Tr::new(internal_key, None),
+            None => return Tr::new(None),
             Some(tree) => tree,
         };
 
-        let mut tree_builder = taptree::TapTreeBuilder::new();
+        let mut tree_builder = crate::descriptor::tr::taptree::TapTreeBuilder::new();
         let mut tap_tree_iter = tap_tree.pre_order_iter();
         // while let construction needed because we modify the iterator inside the loop
         // (by calling skip_descendants to skip over the contents of the tapscripts).
@@ -400,15 +383,15 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Tr<Pk> {
                 tap_tree_iter.skip_descendants();
             }
         }
-        Tr::new(internal_key, Some(tree_builder.finalize()))
+        Tr::new(Some(tree_builder.finalize()))
     }
 }
 
 impl<Pk: MiniscriptKey> fmt::Debug for Tr<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.tree {
-            Some(ref s) => write!(f, "tr({:?},{:?})", self.internal_key, s),
-            None => write!(f, "tr({:?})", self.internal_key),
+            Some(ref s) => write!(f, "tr({:?})", s),
+            None => write!(f, "tr({:?})", self.tree),
         }
     }
 }
@@ -417,10 +400,9 @@ impl<Pk: MiniscriptKey> fmt::Display for Tr<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use fmt::Write;
         let mut wrapped_f = checksum::Formatter::new(f);
-        let key = &self.internal_key;
         match self.tree {
-            Some(ref s) => write!(wrapped_f, "tr({},{})", key, s)?,
-            None => write!(wrapped_f, "tr({})", key)?,
+            Some(ref s) => write!(wrapped_f, "tr({})", s)?,
+            None => write!(wrapped_f, "tr()")?,
         }
         wrapped_f.write_checksum_if_not_alt()
     }
@@ -429,21 +411,16 @@ impl<Pk: MiniscriptKey> fmt::Display for Tr<Pk> {
 impl<Pk: MiniscriptKey> Liftable<Pk> for Tr<Pk> {
     fn lift(&self) -> Result<Policy<Pk>, Error> {
         match &self.tree {
-            Some(root) => Ok(Policy::Thresh(Threshold::or(
-                Arc::new(Policy::Key(self.internal_key.clone())),
-                Arc::new(root.lift()?),
-            ))),
-            None => Ok(Policy::Key(self.internal_key.clone())),
+            Some(root) => root.lift(),
+            None => Ok(Policy::Unsatisfiable),
         }
     }
 }
 
 impl<Pk: MiniscriptKey> ForEachKey<Pk> for Tr<Pk> {
     fn for_each_key<'a, F: FnMut(&'a Pk) -> bool>(&'a self, mut pred: F) -> bool {
-        let script_keys_res = self
-            .leaves()
-            .all(|leaf| leaf.miniscript().for_each_key(&mut pred));
-        script_keys_res && pred(&self.internal_key)
+        self.leaves()
+            .all(|leaf| leaf.miniscript().for_each_key(&mut pred))
     }
 }
 
@@ -464,62 +441,50 @@ where
     P: AssetProvider<Pk>,
 {
     let spend_info = desc.spend_info();
-    // First try the key spend path
-    if let Some(size) = provider.provider_lookup_tap_key_spend_sig(&desc.internal_key) {
-        Satisfaction {
-            stack: Witness::Stack(vec![Placeholder::SchnorrSigPk(
-                desc.internal_key.clone(),
-                SchnorrSigType::KeySpend { merkle_root: spend_info.merkle_root() },
-                size,
-            )]),
-            has_sig: true,
-            absolute_timelock: None,
-            relative_timelock: None,
-        }
-    } else {
-        // Since we have the complete descriptor we can ignore the satisfier. We don't use the control block
-        // map (lookup_control_block) from the satisfier here.
-        let mut min_satisfaction = Satisfaction {
-            stack: Witness::Unavailable,
-            has_sig: false,
-            relative_timelock: None,
-            absolute_timelock: None,
-        };
-        let mut min_wit_len = None;
-        for leaf in spend_info.leaves() {
-            let mut satisfaction = if allow_mall {
-                match leaf.miniscript().build_template(provider) {
-                    s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
-                    _ => continue, // No witness for this script in tr descriptor, look for next one
-                }
-            } else {
-                match leaf.miniscript().build_template_mall(provider) {
-                    s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
-                    _ => continue, // No witness for this script in tr descriptor, look for next one
-                }
-            };
-            let wit = match satisfaction {
-                Satisfaction { stack: Witness::Stack(ref mut wit), .. } => wit,
-                _ => unreachable!(),
-            };
-
-            let script = ScriptBuf::from(leaf.script());
-            let control_block = leaf.control_block().clone();
-
-            wit.push(Placeholder::TapScript(script));
-            wit.push(Placeholder::TapControlBlock(control_block));
-
-            let wit_size = witness_size(wit);
-            if min_wit_len.is_some() && Some(wit_size) > min_wit_len {
-                continue;
-            } else {
-                min_satisfaction = satisfaction;
-                min_wit_len = Some(wit_size);
+    // P2QRH only supports script path spending, no key path spending
+    
+    // Since we have the complete descriptor we can ignore the satisfier. We don't use the control block
+    // map (lookup_control_block) from the satisfier here.
+    let mut min_satisfaction = Satisfaction {
+        stack: Witness::Unavailable,
+        has_sig: false,
+        relative_timelock: None,
+        absolute_timelock: None,
+    };
+    let mut min_wit_len = None;
+    for leaf in spend_info.leaves() {
+        let mut satisfaction = if allow_mall {
+            match leaf.miniscript().build_template(provider) {
+                s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
+                _ => continue, // No witness for this script in p2qrh descriptor, look for next one
             }
-        }
+        } else {
+            match leaf.miniscript().build_template_mall(provider) {
+                s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
+                _ => continue, // No witness for this script in p2qrh descriptor, look for next one
+            }
+        };
+        let wit = match satisfaction {
+            Satisfaction { stack: Witness::Stack(ref mut wit), .. } => wit,
+            _ => unreachable!(),
+        };
 
-        min_satisfaction
+        let script = ScriptBuf::from(leaf.script());
+        let control_block = leaf.control_block().clone();
+
+        wit.push(Placeholder::TapScript(script));
+        wit.push(Placeholder::P2qrhContolBlock(control_block));
+
+        let wit_size = witness_size(wit);
+        if min_wit_len.is_some() && Some(wit_size) > min_wit_len {
+            continue;
+        } else {
+            min_satisfaction = satisfaction;
+            min_wit_len = Some(wit_size);
+        }
     }
+
+    min_satisfaction
 }
 
 #[cfg(test)]
@@ -529,7 +494,7 @@ mod tests {
     use super::*;
 
     fn descriptor() -> String {
-        let desc = "tr(acc0, {
+        let desc = "tr({
             multi_a(3, acc10, acc11, acc12), {
               and_v(
                 v:multi_a(2, acc10, acc11, acc12),
@@ -555,11 +520,11 @@ mod tests {
     #[test]
     fn tr_maximum_depth() {
         // Copied from integration tests
-        let descriptor128 = "tr(X!,{pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),pk(X129)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
+        let descriptor128 = "tr({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),pk(X129)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
         descriptor128.parse::<crate::Descriptor<String>>().unwrap();
 
         // Copied from integration tests
-        let descriptor129 = "tr(X!,{pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),{pk(X129),pk(X130)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
+        let descriptor129 = "tr({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),{pk(X129),pk(X130)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
         assert!(matches!(
             descriptor129
                 .parse::<crate::Descriptor::<String>>()

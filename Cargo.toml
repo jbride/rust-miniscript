@@ -23,7 +23,7 @@ base64 = ["bitcoin/base64"]
 
 [dependencies]
 bech32 = { version = "0.11.0", default-features = false, features = ["alloc"] }
-bitcoin = { version = "0.32.0", default-features = false }
+bitcoin = { version = "0.32.6", default-features = false }
 
 serde = { version = "1.0.103", optional = true }
 
@@ -72,3 +72,11 @@ required-features = ["compiler"]
 [workspace]
 members = ["fuzz"]
 exclude = ["embedded", "bitcoind-tests"]
+
+[patch.crates-io]
+
+
+# Verify:
+#  cargo update
+#  cargo tree -p bitcoin | more
+bitcoin = { path = "./rust-bitcoin/bitcoin" }
