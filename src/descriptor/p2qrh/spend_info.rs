@@ -133,7 +133,7 @@ impl<Pk: ToPublicKey> QrhSpendInfo<Pk> {
     }
 
     /// Constructs a [`TrSpendInfo`] for a [`super::Tr`].
-    pub fn from_tr(tr: &super::Tr<Pk>) -> Self {
+    pub fn from_tr(tr: &super::Qrh<Pk>) -> Self {
         
         let nodes = match tr.tap_tree() {
             Some(tree) => Self::nodes_from_tap_tree(tree),
@@ -356,18 +356,10 @@ mod tests {
 
         let mut ret = vec![];
 
-        // Empty tree
-        let merkle_root = None;
-        ret.push((
-            format!("tr({pk})"),
-            ExpectedTree { merkle_root },
-            vec![],
-        ));
-
         // Single-leaf tree
         let merkle_root = Some(TapNodeHash::from(zero_hash));
         ret.push((
-            format!("tr({pk},0)"),
+            format!("qrh(0)"),
             ExpectedTree { merkle_root },
             vec![ExpectedLeaf {
                 leaf_hash: zero_hash,
@@ -382,7 +374,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tr({pk},{{0,0}})"),
+            format!("qrh({{0,0}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -405,7 +397,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tr({pk},{{0,1}})"),
+            format!("qrh({{0,1}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -428,7 +420,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tr({pk},{{0,{{0,tv:0}}}})"),
+            format!("qrh({{0,{{0,tv:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -470,7 +462,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tr({pk},{{uuu:0,{{0,uu:0}}}})"),
+            format!("qrh({{uuu:0,{{0,uu:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -518,7 +510,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tr({pk},{{{{0,{{uuu:0,0}}}},{{0,uu:0}}}})"),
+            format!("qrh({{{{0,{{uuu:0,0}}}},{{0,uu:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -592,10 +584,10 @@ mod tests {
     #[test]
     fn spend_info_fixed_vectors() {
         for (s, tree, leaves) in test_cases() {
-            let tr = s
-                .parse::<crate::descriptor::Tr<bitcoin::PublicKey>>()
+            let qrh = s
+                .parse::<crate::descriptor::Qrh<bitcoin::PublicKey>>()
                 .unwrap();
-            let spend_info = tr.spend_info();
+            let spend_info = qrh.spend_info();
 
             assert_eq!(
                 spend_info.merkle_root(),

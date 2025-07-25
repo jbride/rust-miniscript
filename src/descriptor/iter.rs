@@ -2,7 +2,7 @@
 
 //! Iterators over descriptors
 
-use crate::descriptor::{TapTreeIter, Tr};
+use crate::descriptor::{Qrh, TapTreeIter, Tr};
 use crate::miniscript::context::{BareCtx, Legacy, Segwitv0, Tap};
 use crate::{miniscript, Miniscript, MiniscriptKey};
 
@@ -82,6 +82,18 @@ impl<'desc, Pk: MiniscriptKey> PkIter<'desc, Pk> {
         Self {
             single_key: Some(tr.internal_key().clone()),
             taptree_iter: Some(tr.leaves()),
+            ms_iter_bare: None,
+            ms_iter_legacy: None,
+            ms_iter_segwit: None,
+            ms_iter_taproot: None,
+            sorted_multi: None,
+        }
+    }
+
+    pub(super) fn from_qrh(qrh: &'desc Qrh<Pk>) -> Self {
+        Self {
+            single_key: None,
+            taptree_iter: Some(qrh.leaves()),
             ms_iter_bare: None,
             ms_iter_legacy: None,
             ms_iter_segwit: None,

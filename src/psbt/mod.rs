@@ -1168,6 +1168,7 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
             },
             Descriptor::Wsh(wsh) => *item.witness_script() = Some(wsh.inner_script()),
             Descriptor::Tr(_) => unreachable!("Tr is dealt with separately"),
+            Descriptor::Qrh(_) => unreachable!("Qrh is dealt with separately"),
         }
     };
 

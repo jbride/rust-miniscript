@@ -49,6 +49,7 @@ pub use self::tr::{
     TapTree, TapTreeDepthError, TapTreeIter, TapTreeIterItem, Tr, TrSpendInfo, TrSpendInfoIter,
     TrSpendInfoIterItem,
 };
+pub use self::p2qrh::{Qrh, QrhSpendInfo, QrhSpendInfoIterItem};
 
 pub mod checksum;
 mod key;
@@ -82,6 +83,8 @@ pub enum Descriptor<Pk: MiniscriptKey> {
     Wsh(Wsh<Pk>),
     /// Pay-to-Taproot
     Tr(Tr<Pk>),
+    /// Pay-to-QRH
+    Qrh(Qrh<Pk>),
 }
 
 impl<Pk: MiniscriptKey> From<Bare<Pk>> for Descriptor<Pk> {
@@ -139,6 +142,8 @@ pub enum DescriptorType {
     ShWshSortedMulti,
     /// Tr Descriptor
     Tr,
+    /// Qrh Descriptor
+    Qrh,
 }
 
 impl DescriptorType {
@@ -149,6 +154,7 @@ impl DescriptorType {
         use self::DescriptorType::*;
         match self {
             Tr => Some(WitnessVersion::V1),
+            Qrh => Some(WitnessVersion::V3),
             Wpkh | ShWpkh | Wsh | ShWsh | ShWshSortedMulti | WshSortedMulti => {
                 Some(WitnessVersion::V0)
             }
@@ -247,6 +253,12 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
         Ok(Descriptor::Tr(Tr::new(key, script)?))
     }
 
+    /// Create new qrh descriptor
+    /// Errors when miniscript exceeds resource limits under Tap context
+    pub fn new_qrh(script: Option<tr::TapTree<Pk>>) -> Result<Self, Error> {
+        Ok(Descriptor::Qrh(Qrh::new(script)?))
+    }
+
     /// An iterator over all the keys referenced in the descriptor.
     pub fn iter_pk(&self) -> PkIter<'_, Pk> {
         match *self {
@@ -267,6 +279,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
                 WshInner::Ms(ref ms) => PkIter::from_miniscript_segwit(ms),
             },
             Descriptor::Tr(ref tr) => PkIter::from_tr(tr),
+            Descriptor::Qrh(ref qrh) => PkIter::from_qrh(qrh),
         }
     }
 
@@ -284,10 +297,10 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
     /// To obtain the individual leaves of the tree, call [`TapTree::leaves`] on the
     /// returned value.
     pub fn tap_tree(&self) -> Option<&TapTree<Pk>> {
-        if let Descriptor::Tr(ref tr) = self {
-            tr.tap_tree()
-        } else {
-            None
+        match self {
+            Descriptor::Tr(ref tr) => tr.tap_tree(),
+            Descriptor::Qrh(ref qrh) => qrh.tap_tree(),
+            _ => None,
         }
     }
 
@@ -298,6 +311,11 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
     pub fn tap_tree_iter(&self) -> tr::TapTreeIter<Pk> {
         if let Descriptor::Tr(ref tr) = self {
             if let Some(tree) = tr.tap_tree() {
+                return tree.leaves();
+            }
+        }
+        if let Descriptor::Qrh(ref qrh) = self {
+            if let Some(tree) = qrh.tap_tree() {
                 return tree.leaves();
             }
         }
@@ -324,6 +342,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
                 WshInner::Ms(ref _ms) => DescriptorType::Wsh,
             },
             Descriptor::Tr(ref _tr) => DescriptorType::Tr,
+            Descriptor::Qrh(ref _qrh) => DescriptorType::Qrh,
         }
     }
 
@@ -344,6 +363,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.sanity_check(),
             Descriptor::Sh(ref sh) => sh.sanity_check(),
             Descriptor::Tr(ref tr) => tr.sanity_check(),
+            Descriptor::Qrh(ref qrh) => qrh.sanity_check(),
         }
     }
 
@@ -393,6 +413,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.max_weight_to_satisfy()?,
             Descriptor::Sh(ref sh) => sh.max_weight_to_satisfy()?,
             Descriptor::Tr(ref tr) => tr.max_weight_to_satisfy()?,
+            Descriptor::Qrh(ref qrh) => qrh.max_weight_to_satisfy()?,
         };
         Ok(weight)
     }
@@ -419,6 +440,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.max_satisfaction_weight()?,
             Descriptor::Sh(ref sh) => sh.max_satisfaction_weight()?,
             Descriptor::Tr(ref tr) => tr.max_satisfaction_weight()?,
+            Descriptor::Qrh(ref qrh) => qrh.max_satisfaction_weight()?,
         };
         Ok(weight)
     }
@@ -438,6 +460,7 @@ impl<Pk: MiniscriptKey> Descriptor<Pk> {
             Descriptor::Sh(ref sh) => Descriptor::Sh(sh.translate_pk(t)?),
             Descriptor::Wsh(ref wsh) => Descriptor::Wsh(wsh.translate_pk(t)?),
             Descriptor::Tr(ref tr) => Descriptor::Tr(tr.translate_pk(t)?),
+            Descriptor::Qrh(ref qrh) => Descriptor::Qrh(qrh.translate_pk(t)?),
         };
         Ok(desc)
     }
@@ -458,6 +481,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => Ok(wsh.address(network)),
             Descriptor::Sh(ref sh) => Ok(sh.address(network)),
             Descriptor::Tr(ref tr) => Ok(tr.address(network)),
+            Descriptor::Qrh(ref qrh) => Ok(qrh.address(network)),
         }
     }
 
@@ -470,6 +494,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.script_pubkey(),
             Descriptor::Sh(ref sh) => sh.script_pubkey(),
             Descriptor::Tr(ref tr) => tr.script_pubkey(),
+            Descriptor::Qrh(ref qrh) => qrh.script_pubkey(),
         }
     }
 
@@ -488,6 +513,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(_) => ScriptBuf::new(),
             Descriptor::Sh(ref sh) => sh.unsigned_script_sig(),
             Descriptor::Tr(_) => ScriptBuf::new(),
+            Descriptor::Qrh(_) => ScriptBuf::new(),
         }
     }
 
@@ -505,6 +531,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => Ok(wsh.inner_script()),
             Descriptor::Sh(ref sh) => Ok(sh.inner_script()),
             Descriptor::Tr(_) => Err(Error::TrNoScriptCode),
+            Descriptor::Qrh(_) => Err(Error::TrNoScriptCode),
         }
     }
 
@@ -523,6 +550,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => Ok(wsh.ecdsa_sighash_script_code()),
             Descriptor::Sh(ref sh) => Ok(sh.ecdsa_sighash_script_code()),
             Descriptor::Tr(_) => Err(Error::TrNoScriptCode),
+            Descriptor::Qrh(_) => Err(Error::TrNoScriptCode),
         }
     }
 
@@ -540,6 +568,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.get_satisfaction(satisfier),
             Descriptor::Sh(ref sh) => sh.get_satisfaction(satisfier),
             Descriptor::Tr(ref tr) => tr.get_satisfaction(&satisfier),
+            Descriptor::Qrh(ref qrh) => qrh.get_satisfaction(&satisfier),
         }
     }
 
@@ -557,6 +586,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.get_satisfaction_mall(satisfier),
             Descriptor::Sh(ref sh) => sh.get_satisfaction_mall(satisfier),
             Descriptor::Tr(ref tr) => tr.get_satisfaction_mall(&satisfier),
+            Descriptor::Qrh(ref qrh) => qrh.get_satisfaction_mall(&satisfier),
         }
     }
 
@@ -590,6 +620,7 @@ impl Descriptor<DefiniteDescriptorKey> {
             Descriptor::Wsh(ref wsh) => wsh.plan_satisfaction(provider),
             Descriptor::Sh(ref sh) => sh.plan_satisfaction(provider),
             Descriptor::Tr(ref tr) => tr.plan_satisfaction(provider),
+            Descriptor::Qrh(ref qrh) => qrh.plan_satisfaction(provider),
         };
 
         if let satisfy::Witness::Stack(stack) = satisfaction.stack {
@@ -619,6 +650,7 @@ impl Descriptor<DefiniteDescriptorKey> {
             Descriptor::Wsh(ref wsh) => wsh.plan_satisfaction_mall(provider),
             Descriptor::Sh(ref sh) => sh.plan_satisfaction_mall(provider),
             Descriptor::Tr(ref tr) => tr.plan_satisfaction_mall(provider),
+            Descriptor::Qrh(ref qrh) => qrh.plan_satisfaction_mall(provider),
         };
 
         if let satisfy::Witness::Stack(stack) = satisfaction.stack {
@@ -644,6 +676,7 @@ impl<Pk: MiniscriptKey> ForEachKey<Pk> for Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.for_each_key(pred),
             Descriptor::Sh(ref sh) => sh.for_each_key(pred),
             Descriptor::Tr(ref tr) => tr.for_each_key(pred),
+            Descriptor::Qrh(ref qrh) => qrh.for_each_key(pred),
         }
     }
 }
@@ -989,6 +1022,7 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Descriptor<Pk> {
             ("sh", 1) => Descriptor::Sh(Sh::from_tree(top)?),
             ("wsh", 1) => Descriptor::Wsh(Wsh::from_tree(top)?),
             ("tr", _) => Descriptor::Tr(Tr::from_tree(top)?),
+            ("qrh", _) => Descriptor::Qrh(Qrh::from_tree(top)?),
             _ => Descriptor::Bare(Bare::from_tree(top)?),
         })
     }
@@ -1021,6 +1055,7 @@ impl<Pk: MiniscriptKey> fmt::Debug for Descriptor<Pk> {
             Descriptor::Sh(ref sub) => fmt::Debug::fmt(sub, f),
             Descriptor::Wsh(ref sub) => fmt::Debug::fmt(sub, f),
             Descriptor::Tr(ref tr) => fmt::Debug::fmt(tr, f),
+            Descriptor::Qrh(ref qrh) => fmt::Debug::fmt(qrh, f),
         }
     }
 }
@@ -1034,6 +1069,7 @@ impl<Pk: MiniscriptKey> fmt::Display for Descriptor<Pk> {
             Descriptor::Sh(ref sub) => fmt::Display::fmt(sub, f),
             Descriptor::Wsh(ref sub) => fmt::Display::fmt(sub, f),
             Descriptor::Tr(ref tr) => fmt::Display::fmt(tr, f),
+            Descriptor::Qrh(ref qrh) => fmt::Display::fmt(qrh, f),
         }
     }
 }
