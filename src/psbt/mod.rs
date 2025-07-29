@@ -19,6 +19,7 @@ use bitcoin::secp256k1;
 use bitcoin::secp256k1::{Secp256k1, VerifyOnly};
 use bitcoin::sighash::{self, SighashCache};
 use bitcoin::taproot::{self, ControlBlock, LeafVersion, TapLeafHash};
+use bitcoin::p2qrh::P2qrhControlBlock;
 use bitcoin::{absolute, bip32, relative, transaction, Script, ScriptBuf};
 
 use crate::miniscript::context::SigType;
@@ -293,6 +294,12 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for PsbtInputSatisfier<'_> {
         &self,
     ) -> Option<&BTreeMap<ControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
         Some(&self.psbt_input().tap_scripts)
+    }
+
+    fn lookup_qrh_control_block_map(
+        &self,
+    ) -> Option<&BTreeMap<P2qrhControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
+        Some(&self.psbt_input().qrh_scripts)
     }
 
     fn lookup_raw_pkh_tap_leaf_script_sig(
@@ -832,7 +839,7 @@ impl PsbtExt for Psbt {
         let prevouts = bitcoin::sighash::Prevouts::All(&prevouts);
         let inp_spk =
             finalizer::get_scriptpubkey(self, idx).map_err(|_e| SighashError::MissingInputUtxo)?;
-        if inp_spk.is_p2tr() {
+        if inp_spk.is_p2tr() || inp_spk.is_qrh() {
             let hash_ty = inp
                 .sighash_type
                 .map(|sighash_type| sighash_type.taproot_hash_ty())
@@ -1022,6 +1029,11 @@ trait PsbtFields {
         None
     }
     fn tap_merkle_root(&mut self) -> Option<&mut Option<taproot::TapNodeHash>> { None }
+
+    // Add this field to the PsbtFields trait
+    fn qrh_scripts(&mut self) -> Option<&mut BTreeMap<P2qrhControlBlock, (ScriptBuf, LeafVersion)>> {
+        None
+    }
 }
 
 impl PsbtFields for psbt::Input {
@@ -1050,6 +1062,10 @@ impl PsbtFields for psbt::Input {
     }
     fn tap_merkle_root(&mut self) -> Option<&mut Option<taproot::TapNodeHash>> {
         Some(&mut self.tap_merkle_root)
+    }
+
+    fn qrh_scripts(&mut self) -> Option<&mut BTreeMap<P2qrhControlBlock, (ScriptBuf, LeafVersion)>> {
+        Some(&mut self.qrh_scripts) // You'll need to add this field to psbt::Input
     }
 }
 
@@ -1105,14 +1121,14 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
     }
 
     // 3. Update the PSBT fields using the derived key map.
+    let xpub_map = &bip32_derivation.0;
     if let Descriptor::Tr(ref tr_derived) = &derived {
         let spend_info = tr_derived.spend_info();
-        let KeySourceLookUp(xpub_map, _) = bip32_derivation;
 
         *item.tap_internal_key() = Some(spend_info.internal_key());
         for (derived_key, key_source) in xpub_map {
             item.tap_key_origins()
-                .insert(derived_key.to_x_only_pubkey(), (vec![], key_source));
+                .insert(derived_key.to_x_only_pubkey(), (vec![], key_source.clone()));
         }
         if let Some(merkle_root) = item.tap_merkle_root() {
             *merkle_root = spend_info.merkle_root();
@@ -1126,6 +1142,59 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
                 tap_scripts.insert(control_block, leaf_script);
             }
 
+            for leaf_pk in leaf_derived.miniscript().iter_pk() {
+                let tapleaf_hashes = &mut item
+                    .tap_key_origins()
+                    .get_mut(&leaf_pk.to_x_only_pubkey())
+                    .expect("inserted all keys above")
+                    .0;
+                if tapleaf_hashes.last() != Some(&tapleaf_hash) {
+                    tapleaf_hashes.push(tapleaf_hash);
+                }
+            }
+        }
+
+        // Ensure there are no duplicated leaf hashes. This can happen if some of them were
+        // already present in the map when this function is called, since this only appends new
+        // data to the psbt without checking what's already present.
+        for (tapleaf_hashes, _) in item.tap_key_origins().values_mut() {
+            tapleaf_hashes.sort();
+            tapleaf_hashes.dedup();
+        }
+
+        // Only set the tap_tree if the item supports it (it's an output) and the descriptor actually
+        // contains one, otherwise it'll just be empty
+        if let Some(tap_tree) = item.tap_tree() {
+            *tap_tree = spend_info.to_tap_tree();
+        }
+    } else if let Descriptor::Qrh(ref qrh_derived) = &derived {
+        let spend_info = qrh_derived.spend_info();
+        
+        let xpub_map = &bip32_derivation.0;
+        
+        // Insert all derived keys into tap_key_origins with empty tapleaf hash lists
+        for (derived_key, key_source) in xpub_map {
+            item.tap_key_origins()
+                .insert(derived_key.to_x_only_pubkey(), (vec![], key_source.clone()));
+        }
+        
+        if let Some(merkle_root) = item.tap_merkle_root() {
+            *merkle_root = spend_info.merkle_root();
+        }
+
+        for leaf_derived in spend_info.leaves() {
+            let leaf_script = (ScriptBuf::from(leaf_derived.script()), leaf_derived.leaf_version());
+            let tapleaf_hash = leaf_derived.leaf_hash();
+            if let Some(tap_scripts) = item.qrh_scripts() {
+                let control_block = leaf_derived.control_block().clone();
+                tap_scripts.insert(control_block, leaf_script);
+            }
+
+            // Associate each public key in this tapleaf with its corresponding tapleaf hash.
+            // This mapping is essential for script path spending, allowing the wallet to know
+            // which keys can be used to sign which tapleaves in the P2QRH tree.
+            // A single key can be used across multiple tapleaves, so we maintain a list of
+            // tapleaf hashes for each key.
             for leaf_pk in leaf_derived.miniscript().iter_pk() {
                 let tapleaf_hashes = &mut item
                     .tap_key_origins()
@@ -1360,6 +1429,7 @@ impl PsbtSighashMsg {
             PsbtSighashMsg::SegwitV0Sighash(msg) => {
                 secp256k1::Message::from_digest(msg.to_byte_array())
             }
+
         }
     }
 }

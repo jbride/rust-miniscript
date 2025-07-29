@@ -584,6 +584,7 @@ mod tests {
     #[test]
     fn spend_info_fixed_vectors() {
         for (s, tree, leaves) in test_cases() {
+            println!("Testing: {}", s);
             let qrh = s
                 .parse::<crate::descriptor::Qrh<bitcoin::PublicKey>>()
                 .unwrap();

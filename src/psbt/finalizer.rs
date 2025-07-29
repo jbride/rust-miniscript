@@ -107,6 +107,74 @@ fn construct_tap_witness(
     }
 }
 
+fn construct_qrh_witness(
+    spk: &Script,
+    sat: &PsbtInputSatisfier,
+    allow_mall: bool,
+) -> Result<Vec<Vec<u8>>, InputError> {
+    // When miniscript tries to finalize the PSBT, it doesn't have the full descriptor (which contained a pkh() fragment)
+    // and instead resorts to parsing the raw script sig, which is translated into a "expr_raw_pkh" internally.
+    let mut map: BTreeMap<hash160::Hash, bitcoin::key::XOnlyPublicKey> = BTreeMap::new();
+    let psbt_inputs = &sat.psbt.inputs;
+
+    for psbt_input in psbt_inputs {
+        // We need to satisfy or dissatisfy any given key. `tap_key_origin` is the only field of PSBT Input which consist of
+        // all the keys added on a descriptor and thus we get keys from it.
+        let public_keys = psbt_input.tap_key_origins.keys();
+        for key in public_keys {
+            let bitcoin_key = *key;
+            let hash = bitcoin_key.to_pubkeyhash(SigType::Schnorr);
+            map.insert(hash, bitcoin_key);
+        }
+    }
+    assert!(spk.is_qrh());
+
+    // Next script spends
+    let (mut min_wit, mut min_wit_len) = (None, None);
+    if let Some(block_map) =
+        <PsbtInputSatisfier as Satisfier<XOnlyPublicKey>>::lookup_qrh_control_block_map(sat)
+    {
+        for (control_block, (script, ver)) in block_map {
+            if *ver != LeafVersion::TapScript {
+                // We don't know how to satisfy non default version scripts yet
+                continue;
+            }
+            let ms = match Miniscript::<XOnlyPublicKey, Tap>::parse_with_ext(
+                script,
+                &ExtParams::allow_all(),
+            ) {
+                Ok(ms) => ms.substitute_raw_pkh(&map),
+                Err(..) => continue, // try another script
+            };
+            let mut wit = if allow_mall {
+                match ms.satisfy_malleable(sat) {
+                    Ok(ms) => ms,
+                    Err(..) => continue,
+                }
+            } else {
+                match ms.satisfy(sat) {
+                    Ok(ms) => ms,
+                    Err(..) => continue,
+                }
+            };
+            wit.push(ms.encode().into_bytes());
+            wit.push(control_block.serialize());
+            let wit_len = Some(witness_size(&wit));
+            if min_wit_len.is_some() && wit_len > min_wit_len {
+                continue;
+            } else {
+                // store the minimum
+                min_wit = Some(wit);
+                min_wit_len = wit_len;
+            }
+        }
+        min_wit.ok_or(InputError::CouldNotSatisfyTr)
+    } else {
+        // No control blocks found
+        Err(InputError::CouldNotSatisfyTr)
+    }
+}
+
 // Get the scriptpubkey for the psbt input
 pub(super) fn get_scriptpubkey(psbt: &Psbt, index: usize) -> Result<ScriptBuf, InputError> {
     get_utxo(psbt, index).map(|utxo| utxo.script_pubkey.clone())
@@ -412,6 +480,9 @@ fn finalize_input_helper<C: secp256k1::Verification>(
             // Deal with tr case separately, unfortunately we cannot infer the full descriptor for Tr
             let wit = construct_tap_witness(&spk, &sat, allow_mall)
                 .map_err(|e| Error::InputError(e, index))?;
+            (wit, ScriptBuf::new())
+        } else if spk.is_qrh() {
+            let wit = construct_qrh_witness(&spk, &sat, allow_mall).map_err(|e| Error::InputError(e, index))?;
             (wit, ScriptBuf::new())
         } else {
             // Get a descriptor for this input.

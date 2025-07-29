@@ -386,6 +386,65 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
             _ => compiler::best_compilation(self),
         }
     }
+
+    /// Compiles the [`Policy`] into a [`Descriptor::Tr`].
+    ///
+    /// ### TapTree compilation
+    ///
+    /// The policy tree constructed by root-level disjunctions over [`Policy::Or`] and
+    /// [`Policy::Thresh`](1, ..) which is flattened into a vector (with respective
+    /// probabilities derived from odds) of policies.
+    ///
+    /// For example, the policy `thresh(1,or(pk(A),pk(B)),and(or(pk(C),pk(D)),pk(E)))` gives the
+    /// vector `[pk(A),pk(B),and(or(pk(C),pk(D)),pk(E)))]`. Each policy in the vector is compiled
+    /// into the respective miniscripts. A Huffman Tree is created from this vector which optimizes
+    /// over the probabilitity of satisfaction for the respective branch in the TapTree.
+    ///
+    /// Refer to [this link](https://gist.github.com/SarcasticNastik/9e70b2b43375aab3e78c51e09c288c89)
+    /// or [doc/Tr compiler.pdf] in the root of the repository to understand why such compilation
+    /// is also *cost-efficient*.
+    // TODO: We might require other compile errors for Taproot.
+    #[cfg(feature = "compiler")]
+    pub fn compile_qrh(&self) -> Result<Descriptor<Pk>, CompilerError> {
+        self.is_valid().map_err(CompilerError::PolicyError)?;
+        self.check_binary_ops()?;
+        match self.is_safe_nonmalleable() {
+            (false, _) => Err(CompilerError::TopLevelNonSafe),
+            (_, false) => Err(CompilerError::ImpossibleNonMalleableCompilation),
+            _ => {
+                let policy = self.clone();
+                policy.check_num_tapleaves()?;
+                let tree = Descriptor::new_qrh(
+                    match policy {
+                        Policy::Trivial => None,
+                        policy => {
+                            let mut leaf_compilations: Vec<(OrdF64, Miniscript<Pk, Tap>)> = vec![];
+                            for (prob, pol) in policy.tapleaf_probability_iter() {
+                                // policy corresponding to the key (replaced by unsatisfiable) is skipped
+                                if *pol == Policy::Unsatisfiable {
+                                    continue;
+                                }
+                                let compilation = compiler::best_compilation::<Pk, Tap>(pol)?;
+                                compilation
+                                    .sanity_check()
+                                    .expect("compiler produces sane output");
+                                leaf_compilations.push((OrdF64(prob), compilation));
+                            }
+                            if !leaf_compilations.is_empty() {
+                                let tap_tree = with_huffman_tree::<Pk>(leaf_compilations);
+                                Some(tap_tree)
+                            } else {
+                                // no policies remaining once the extracted key is skipped
+                                None
+                            }
+                        }
+                    },
+                )
+                .expect("compiler produces sane output");
+                Ok(tree)
+            }
+        }
+    }
 }
 
 #[cfg(feature = "compiler")]

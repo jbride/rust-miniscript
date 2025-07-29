@@ -494,7 +494,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Descriptor<Pk> {
             Descriptor::Wsh(ref wsh) => wsh.script_pubkey(),
             Descriptor::Sh(ref sh) => sh.script_pubkey(),
             Descriptor::Tr(ref tr) => tr.script_pubkey(),
-            Descriptor::Qrh(ref qrh) => qrh.script_pubkey(),
+            Descriptor::Qrh(ref qrh) => qrh.script_pubkey().as_scriptbuf(),
         }
     }
 

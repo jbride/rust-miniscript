@@ -3,6 +3,8 @@
 
 use bitcoin::hashes::{hash160, sha256, Hash};
 use bitcoin::taproot::{ControlBlock, TAPROOT_ANNEX_PREFIX};
+use bitcoin::p2qrh::{P2qrhControlBlock, QuantumRootHash};
+use bitcoin::blockdata::opcodes;
 use bitcoin::Witness;
 
 use super::{stack, BitcoinKey, Error, Stack};
@@ -239,6 +241,41 @@ pub(super) fn from_txdata<'txin>(
                     } else {
                         Err(Error::ControlBlockVerificationError)
                     }
+                }
+            }
+        }
+    } else if spk.is_qrh() {
+        if !ssig_stack.is_empty() {
+            Err(Error::NonEmptyScriptSig)
+        } else {
+            let has_annex = wit_stack
+              .last()
+              .and_then(|x| x.as_push().ok())
+              .map(|x| !x.is_empty() && x[0] == TAPROOT_ANNEX_PREFIX)
+              .unwrap_or(false);
+            let has_annex = has_annex && (wit_stack.len() >= 2);
+            if has_annex {
+                // Annex is non-standard, bitcoin consensus rules ignore it.
+                // Our sighash structure and signature verification
+                // does not support annex, return error
+                return Err(Error::TapAnnexUnsupported);
+            }
+            match wit_stack.len() {
+                0 => Err(Error::UnexpectedStackEnd),
+                _ => {
+                    // Script spend - P2QRH only supports script path
+                    let ctrl_blk = wit_stack.pop().ok_or(Error::UnexpectedStackEnd)?;
+                    let qrh_script = wit_stack.pop().ok_or(Error::UnexpectedStackEnd)?;
+        
+                    let qrh_script = script_from_stack_elem::<Tap>(&qrh_script)?;
+                    let ms = qrh_script.to_no_checks_ms();
+                    let qrh_script = qrh_script.encode();
+                    
+                    Ok((
+                        Inner::Script(ms, ScriptType::Tr), // Use Tr for now, or add Qrh variant
+                        wit_stack,
+                        Some(qrh_script),
+                    ))
                 }
             }
         }

@@ -69,6 +69,11 @@ name = "taptree_of_horror"
 path = "examples/taptree_of_horror/taptree_of_horror.rs"
 required-features = ["compiler"]
 
+[[example]]
+name = "qrh_taptree_of_horror"
+path = "examples/taptree_of_horror/qrh_taptree_of_horror.rs"
+required-features = ["compiler"]
+
 [workspace]
 members = ["fuzz"]
 exclude = ["embedded", "bitcoind-tests"]

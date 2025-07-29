@@ -54,6 +54,12 @@ pub trait Satisfier<Pk: MiniscriptKey + ToPublicKey> {
         None
     }
 
+    fn lookup_qrh_control_block_map(
+        &self,
+    ) -> Option<&BTreeMap<P2qrhControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
+        None
+    }
+
     /// Given a raw `Pkh`, lookup corresponding [`bitcoin::PublicKey`]
     fn lookup_raw_pkh_pk(&self, _: &hash160::Hash) -> Option<bitcoin::PublicKey> { None }
 
