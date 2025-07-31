@@ -57,6 +57,11 @@ name = "taproot"
 required-features = ["compiler","std"]
 
 [[example]]
+name = "qrh"
+required-features = ["compiler","std"]
+
+
+[[example]]
 name = "psbt_sign_finalize"
 required-features = ["std", "base64"]
 

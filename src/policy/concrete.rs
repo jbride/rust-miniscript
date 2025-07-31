@@ -91,6 +91,7 @@ pub enum DescriptorCtx<Pk> {
     /// [`Descriptor::Tr`] where the `Option<Pk>` corresponds to the internal key if no
     /// internal key can be inferred from the given policy.
     Tr(Option<Pk>),
+    Qrh,
 }
 
 impl fmt::Display for PolicyError {
@@ -365,6 +366,9 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
                 DescriptorCtx::Tr(unspendable_key) => self
                     .compile_tr(unspendable_key)
                     .map_err(Error::CompilerError),
+                DescriptorCtx::Qrh => self
+                    .compile_qrh()
+                    .map_err(Error::CompilerError),
             },
         }
     }
@@ -412,7 +416,7 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
             (false, _) => Err(CompilerError::TopLevelNonSafe),
             (_, false) => Err(CompilerError::ImpossibleNonMalleableCompilation),
             _ => {
-                let policy = self.clone();
+                let (_, policy) = self.clone().extract_key(None)?;
                 policy.check_num_tapleaves()?;
                 let tree = Descriptor::new_qrh(
                     match policy {

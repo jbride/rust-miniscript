@@ -393,8 +393,8 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Qrh<Pk> {
 impl<Pk: MiniscriptKey> fmt::Debug for Qrh<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.tree {
-            Some(ref s) => write!(f, "tr({:?})", s),
-            None => write!(f, "tr({:?})", self.tree),
+            Some(ref s) => write!(f, "qrh({:?})", s),
+            None => write!(f, "qrh({:?})", self.tree),
         }
     }
 }
