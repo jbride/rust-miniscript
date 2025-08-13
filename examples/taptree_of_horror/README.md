@@ -20,11 +20,11 @@ The challenge can be found here:
 ### Helpful Graphic to visualize using Excalidraw
 ![taptree_of_horror](./taptree_of_horror.png)
 
-## P2QRH
+## P2TSH
 
 ### Running this example:
-- `cargo run --example qrh_taptree_of_horror --features "compiler"`
+- `cargo run --example tsh_taptree_of_horror --features "compiler"`
 
 ### This example demonstrates:
-- Identical to P2TR example with the exception that miniscript policy does not define a _key path spend_ (since P2QRH is spend-path MAST only)
+- Identical to P2TR example with the exception that miniscript policy does not define a _key path spend_ (since P2TSH is spend-path merkle tree only)
 

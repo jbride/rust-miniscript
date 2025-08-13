@@ -57,7 +57,7 @@ name = "taproot"
 required-features = ["compiler","std"]
 
 [[example]]
-name = "qrh"
+name = "tsh"
 required-features = ["compiler","std"]
 
 
@@ -75,8 +75,8 @@ path = "examples/taptree_of_horror/taptree_of_horror.rs"
 required-features = ["compiler"]
 
 [[example]]
-name = "qrh_taptree_of_horror"
-path = "examples/taptree_of_horror/qrh_taptree_of_horror.rs"
+name = "tsh_taptree_of_horror"
+path = "examples/taptree_of_horror/tsh_taptree_of_horror.rs"
 required-features = ["compiler"]
 
 [workspace]

@@ -3,7 +3,7 @@
 use core::{cmp, fmt, hash};
 
 use bitcoin::taproot::{TAPROOT_CONTROL_BASE_SIZE, TAPROOT_CONTROL_NODE_SIZE, TapNodeHash};
-use bitcoin::p2qrh::P2qrhScriptBuf;
+use bitcoin::p2tsh::P2tshScriptBuf;
 use bitcoin::{opcodes, Address, Network, ScriptBuf, Weight};
 use bitcoin::hashes::Hash;
 use sync::Arc;
@@ -26,10 +26,10 @@ use crate::descriptor::tr::{TapTree, TapTreeIter};
 
 mod spend_info;
 
-pub use self::spend_info::{QrhSpendInfo, QrhSpendInfoIterItem};
+pub use self::spend_info::{TshSpendInfo, TshSpendInfoIterItem};
 
 /// A taproot descriptor
-pub struct Qrh<Pk: MiniscriptKey> {
+pub struct Tsh<Pk: MiniscriptKey> {
 
     /// Optional Taproot Tree with spending conditions
     tree: Option<TapTree<Pk>>,
@@ -40,10 +40,10 @@ pub struct Qrh<Pk: MiniscriptKey> {
     // The inner `Arc` here is because Rust does not allow us to return a reference
     // to the contents of the `Option` from inside a `MutexGuard`. There is no outer
     // `Arc` because when this structure is cloned, we create a whole new mutex.
-    spend_info: Mutex<Option<Arc<QrhSpendInfo<Pk>>>>,
+    spend_info: Mutex<Option<Arc<TshSpendInfo<Pk>>>>,
 }
 
-impl<Pk: MiniscriptKey> Clone for Qrh<Pk> {
+impl<Pk: MiniscriptKey> Clone for Tsh<Pk> {
     fn clone(&self) -> Self {
         // When cloning, construct a new Mutex so that distinct clones don't
         // cause blocking between each other. We clone only the internal `Arc`,
@@ -62,31 +62,31 @@ impl<Pk: MiniscriptKey> Clone for Qrh<Pk> {
     }
 }
 
-impl<Pk: MiniscriptKey> PartialEq for Qrh<Pk> {
+impl<Pk: MiniscriptKey> PartialEq for Tsh<Pk> {
     fn eq(&self, other: &Self) -> bool {
         self.tree == other.tree
     }
 }
 
-impl<Pk: MiniscriptKey> Eq for Qrh<Pk> {}
+impl<Pk: MiniscriptKey> Eq for Tsh<Pk> {}
 
-impl<Pk: MiniscriptKey> PartialOrd for Qrh<Pk> {
+impl<Pk: MiniscriptKey> PartialOrd for Tsh<Pk> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> { Some(self.cmp(other)) }
 }
 
-impl<Pk: MiniscriptKey> Ord for Qrh<Pk> {
+impl<Pk: MiniscriptKey> Ord for Tsh<Pk> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.tree.cmp(&other.tree)
     }
 }
 
-impl<Pk: MiniscriptKey> hash::Hash for Qrh<Pk> {
+impl<Pk: MiniscriptKey> hash::Hash for Tsh<Pk> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.tree.hash(state);
     }
 }
 
-impl<Pk: MiniscriptKey> Qrh<Pk> {
+impl<Pk: MiniscriptKey> Tsh<Pk> {
     /// Create a new [`Tr`] descriptor from internal key and [`TapTree`]
     pub fn new(tree: Option<TapTree<Pk>>) -> Result<Self, Error> {
         Ok(Self { tree, spend_info: Mutex::new(None) })
@@ -116,7 +116,7 @@ impl<Pk: MiniscriptKey> Qrh<Pk> {
     /// This data is needed to compute the Taproot output, so this method is implicitly
     /// called through [`Self::script_pubkey`], [`Self::address`], etc. It is also needed
     /// to compute the hash needed to sign the output.
-    pub fn spend_info(&self) -> Arc<QrhSpendInfo<Pk>>
+    pub fn spend_info(&self) -> Arc<TshSpendInfo<Pk>>
     where
         Pk: ToPublicKey,
     {
@@ -124,7 +124,7 @@ impl<Pk: MiniscriptKey> Qrh<Pk> {
         match *lock {
             Some(ref res) => Arc::clone(res),
             None => {
-                let arc = Arc::new(QrhSpendInfo::from_tr(self));
+                let arc = Arc::new(TshSpendInfo::from_tr(self));
                 *lock = Some(Arc::clone(&arc));
                 arc
             }
@@ -242,7 +242,7 @@ impl<Pk: MiniscriptKey> Qrh<Pk> {
     pub fn translate_pk<T>(
         &self,
         translate: &mut T,
-    ) -> Result<Qrh<T::TargetPk>, TranslateErr<T::Error>>
+    ) -> Result<Tsh<T::TargetPk>, TranslateErr<T::Error>>
     where
         T: Translator<Pk>,
     {
@@ -251,25 +251,25 @@ impl<Pk: MiniscriptKey> Qrh<Pk> {
             None => None,
         };
         let translate_desc =
-            Qrh::new(tree).map_err(TranslateErr::OuterError)?;
+            Tsh::new(tree).map_err(TranslateErr::OuterError)?;
         Ok(translate_desc)
     }
 }
 
-impl<Pk: MiniscriptKey + ToPublicKey> Qrh<Pk> {
+impl<Pk: MiniscriptKey + ToPublicKey> Tsh<Pk> {
     /// Obtains the corresponding script pubkey for this descriptor.
-    pub fn script_pubkey(&self) -> P2qrhScriptBuf {
+    pub fn script_pubkey(&self) -> P2tshScriptBuf {
         let spend_info = self.spend_info();
 
 
-        let merkle_root: TapNodeHash = spend_info.merkle_root().expect("QRH descriptor must have a merkle root");
-        return P2qrhScriptBuf::new_p2qrh(merkle_root);
+        let merkle_root: TapNodeHash = spend_info.merkle_root().expect("TSH descriptor must have a merkle root");
+        return P2tshScriptBuf::new_p2tsh(merkle_root);
     }
 
     /// Obtains the corresponding address for this descriptor.
     pub fn address(&self, network: Network) -> Address {
         let spend_info = self.spend_info();
-        Address::p2qrh(spend_info.merkle_root(), network)
+        Address::p2tsh(spend_info.merkle_root(), network)
     }
 
         /// Returns satisfying non-malleable witness and scriptSig with minimum
@@ -310,7 +310,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Qrh<Pk> {
     }
 }
 
-impl Qrh<DefiniteDescriptorKey> {
+impl Tsh<DefiniteDescriptorKey> {
     /// Returns a plan if the provided assets are sufficient to produce a non-malleable satisfaction
     pub fn plan_satisfaction<P>(
         &self,
@@ -334,7 +334,7 @@ impl Qrh<DefiniteDescriptorKey> {
     }
 }
 
-impl<Pk: FromStrKey> core::str::FromStr for Qrh<Pk> {
+impl<Pk: FromStrKey> core::str::FromStr for Tsh<Pk> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -343,11 +343,11 @@ impl<Pk: FromStrKey> core::str::FromStr for Qrh<Pk> {
     }
 }
 
-impl<Pk: FromStrKey> crate::expression::FromTree for Qrh<Pk> {
+impl<Pk: FromStrKey> crate::expression::FromTree for Tsh<Pk> {
     fn from_tree(root: expression::TreeIterItem) -> Result<Self, Error> {
         use crate::expression::{Parens, ParseTreeError};
 
-        root.verify_toplevel("qrh", 1..=2)
+        root.verify_toplevel("tsh", 1..=2)
             .map_err(From::from)
             .map_err(Error::Parse)?;
 
@@ -355,7 +355,7 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Qrh<Pk> {
 
 
         let tap_tree = match root_children.next() {
-            None => return Qrh::new(None),
+            None => return Tsh::new(None),
             Some(tree) => tree,
         };
 
@@ -386,32 +386,32 @@ impl<Pk: FromStrKey> crate::expression::FromTree for Qrh<Pk> {
                 tap_tree_iter.skip_descendants();
             }
         }
-        Qrh::new(Some(tree_builder.finalize()))
+        Tsh::new(Some(tree_builder.finalize()))
     }
 }
 
-impl<Pk: MiniscriptKey> fmt::Debug for Qrh<Pk> {
+impl<Pk: MiniscriptKey> fmt::Debug for Tsh<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.tree {
-            Some(ref s) => write!(f, "qrh({:?})", s),
-            None => write!(f, "qrh({:?})", self.tree),
+            Some(ref s) => write!(f, "tsh({:?})", s),
+            None => write!(f, "tsh({:?})", self.tree),
         }
     }
 }
 
-impl<Pk: MiniscriptKey> fmt::Display for Qrh<Pk> {
+impl<Pk: MiniscriptKey> fmt::Display for Tsh<Pk> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use fmt::Write;
         let mut wrapped_f = checksum::Formatter::new(f);
         match self.tree {
-            Some(ref s) => write!(wrapped_f, "qrh({})", s)?,
-            None => write!(wrapped_f, "qrh()")?,
+            Some(ref s) => write!(wrapped_f, "tsh({})", s)?,
+            None => write!(wrapped_f, "tsh()")?,
         }
         wrapped_f.write_checksum_if_not_alt()
     }
 }
 
-impl<Pk: MiniscriptKey> Liftable<Pk> for Qrh<Pk> {
+impl<Pk: MiniscriptKey> Liftable<Pk> for Tsh<Pk> {
     fn lift(&self) -> Result<Policy<Pk>, Error> {
         match &self.tree {
             Some(root) => root.lift(),
@@ -420,7 +420,7 @@ impl<Pk: MiniscriptKey> Liftable<Pk> for Qrh<Pk> {
     }
 }
 
-impl<Pk: MiniscriptKey> ForEachKey<Pk> for Qrh<Pk> {
+impl<Pk: MiniscriptKey> ForEachKey<Pk> for Tsh<Pk> {
     fn for_each_key<'a, F: FnMut(&'a Pk) -> bool>(&'a self, mut pred: F) -> bool {
         self.leaves()
             .all(|leaf| leaf.miniscript().for_each_key(&mut pred))
@@ -435,7 +435,7 @@ fn control_block_len(depth: u8) -> usize {
 // Helper function to get a script spend satisfaction
 // try script spend
 fn best_tap_spend<Pk, P>(
-    desc: &Qrh<Pk>,
+    desc: &Tsh<Pk>,
     provider: &P,
     allow_mall: bool,
 ) -> Satisfaction<Placeholder<Pk>>
@@ -444,7 +444,7 @@ where
     P: AssetProvider<Pk>,
 {
     let spend_info = desc.spend_info();
-    // P2QRH only supports script path spending, no key path spending
+    // P2TSH only supports script path spending, no key path spending
     
     // Since we have the complete descriptor we can ignore the satisfier. We don't use the control block
     // map (lookup_control_block) from the satisfier here.
@@ -459,12 +459,12 @@ where
         let mut satisfaction = if allow_mall {
             match leaf.miniscript().build_template(provider) {
                 s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
-                _ => continue, // No witness for this script in p2qrh descriptor, look for next one
+                _ => continue, // No witness for this script in p2tsh descriptor, look for next one
             }
         } else {
             match leaf.miniscript().build_template_mall(provider) {
                 s @ Satisfaction { stack: Witness::Stack(_), .. } => s,
-                _ => continue, // No witness for this script in p2qrh descriptor, look for next one
+                _ => continue, // No witness for this script in p2tsh descriptor, look for next one
             }
         };
         let wit = match satisfaction {
@@ -476,7 +476,7 @@ where
         let control_block = leaf.control_block().clone();
 
         wit.push(Placeholder::TapScript(script));
-        wit.push(Placeholder::P2qrhContolBlock(control_block));
+        wit.push(Placeholder::P2tshContolBlock(control_block));
 
         let wit_size = witness_size(wit);
         if min_wit_len.is_some() && Some(wit_size) > min_wit_len {
@@ -497,7 +497,7 @@ mod tests {
     use super::*;
 
     fn descriptor() -> String {
-        let desc = "qrh({
+        let desc = "tsh({
             multi_a(3, acc10, acc11, acc12), {
               and_v(
                 v:multi_a(2, acc10, acc11, acc12),
@@ -515,24 +515,24 @@ mod tests {
     #[test]
     fn for_each() {
         let desc = descriptor();
-        let qrh = Qrh::<String>::from_str(&desc).unwrap();
+        let tsh = Tsh::<String>::from_str(&desc).unwrap();
         // Note the last ac12 only has ac and fails the predicate
-        assert!(!qrh.for_each_key(|k| k.starts_with("acc")));
+        assert!(!tsh.for_each_key(|k| k.starts_with("acc")));
     }
 
     #[test]
-    fn qrh_maximum_depth() {
+    fn tsh_maximum_depth() {
         // Copied from integration tests
-        let descriptor128 = "qrh({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),pk(X129)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
+        let descriptor128 = "tsh({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),pk(X129)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
         descriptor128.parse::<crate::Descriptor<String>>().unwrap();
 
         // Copied from integration tests
-        let descriptor129 = "qrh({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),{pk(X129),pk(X130)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
+        let descriptor129 = "tsh({pk(X1!),{pk(X2!),{pk(X3!),{pk(X4!),{pk(X5!),{pk(X6!),{pk(X7!),{pk(X8!),{pk(X9!),{pk(X10!),{pk(X11!),{pk(X12!),{pk(X13!),{pk(X14!),{pk(X15!),{pk(X16!),{pk(X17!),{pk(X18!),{pk(X19!),{pk(X20!),{pk(X21!),{pk(X22!),{pk(X23!),{pk(X24!),{pk(X25!),{pk(X26!),{pk(X27!),{pk(X28!),{pk(X29!),{pk(X30!),{pk(X31!),{pk(X32!),{pk(X33!),{pk(X34!),{pk(X35!),{pk(X36!),{pk(X37!),{pk(X38!),{pk(X39!),{pk(X40!),{pk(X41!),{pk(X42!),{pk(X43!),{pk(X44!),{pk(X45!),{pk(X46!),{pk(X47!),{pk(X48!),{pk(X49!),{pk(X50!),{pk(X51!),{pk(X52!),{pk(X53!),{pk(X54!),{pk(X55!),{pk(X56!),{pk(X57!),{pk(X58!),{pk(X59!),{pk(X60!),{pk(X61!),{pk(X62!),{pk(X63!),{pk(X64!),{pk(X65!),{pk(X66!),{pk(X67!),{pk(X68!),{pk(X69!),{pk(X70!),{pk(X71!),{pk(X72!),{pk(X73!),{pk(X74!),{pk(X75!),{pk(X76!),{pk(X77!),{pk(X78!),{pk(X79!),{pk(X80!),{pk(X81!),{pk(X82!),{pk(X83!),{pk(X84!),{pk(X85!),{pk(X86!),{pk(X87!),{pk(X88!),{pk(X89!),{pk(X90!),{pk(X91!),{pk(X92!),{pk(X93!),{pk(X94!),{pk(X95!),{pk(X96!),{pk(X97!),{pk(X98!),{pk(X99!),{pk(X100!),{pk(X101!),{pk(X102!),{pk(X103!),{pk(X104!),{pk(X105!),{pk(X106!),{pk(X107!),{pk(X108!),{pk(X109!),{pk(X110!),{pk(X111!),{pk(X112!),{pk(X113!),{pk(X114!),{pk(X115!),{pk(X116!),{pk(X117!),{pk(X118!),{pk(X119!),{pk(X120!),{pk(X121!),{pk(X122!),{pk(X123!),{pk(X124!),{pk(X125!),{pk(X126!),{pk(X127!),{pk(X128!),{pk(X129),pk(X130)}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}})";
         assert!(matches!(
             descriptor129
                 .parse::<crate::Descriptor::<String>>()
                 .unwrap_err(),
-            crate::Error::TapTreeDepthError(TapTreeDepthError),
+            crate::Error::TapTreeDepthError(tap_tree_depth_error),
         ));
     }
 }

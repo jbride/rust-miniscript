@@ -91,7 +91,7 @@ pub enum DescriptorCtx<Pk> {
     /// [`Descriptor::Tr`] where the `Option<Pk>` corresponds to the internal key if no
     /// internal key can be inferred from the given policy.
     Tr(Option<Pk>),
-    Qrh,
+    Tsh,
 }
 
 impl fmt::Display for PolicyError {
@@ -366,8 +366,8 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
                 DescriptorCtx::Tr(unspendable_key) => self
                     .compile_tr(unspendable_key)
                     .map_err(Error::CompilerError),
-                DescriptorCtx::Qrh => self
-                    .compile_qrh()
+                DescriptorCtx::Tsh => self
+                    .compile_tsh()
                     .map_err(Error::CompilerError),
             },
         }
@@ -409,17 +409,16 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
     /// is also *cost-efficient*.
     // TODO: We might require other compile errors for Taproot.
     #[cfg(feature = "compiler")]
-    pub fn compile_qrh(&self) -> Result<Descriptor<Pk>, CompilerError> {
+    pub fn compile_tsh(&self) -> Result<Descriptor<Pk>, CompilerError> {
         self.is_valid().map_err(CompilerError::PolicyError)?;
         self.check_binary_ops()?;
         match self.is_safe_nonmalleable() {
             (false, _) => Err(CompilerError::TopLevelNonSafe),
             (_, false) => Err(CompilerError::ImpossibleNonMalleableCompilation),
             _ => {
-                let (_, policy) = self.clone().extract_key(None)?;
-                policy.check_num_tapleaves()?;
-                let tree = Descriptor::new_qrh(
-                    match policy {
+                self.check_num_tapleaves()?;
+                let tree = Descriptor::new_tsh(
+                    match self {
                         Policy::Trivial => None,
                         policy => {
                             let mut leaf_compilations: Vec<(OrdF64, Miniscript<Pk, Tap>)> = vec![];

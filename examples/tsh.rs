@@ -44,24 +44,24 @@ fn main() {
     println!("pol_str = {}", pol_str);
 
     let pol = Concrete::<String>::from_str(&pol_str).unwrap();
-    let desc = pol.compile_qrh().unwrap();
+    let desc = pol.compile_tsh().unwrap();
 
     println!("compileddesc = {}", desc);
 
     let expected_desc =
-        Descriptor::<String>::from_str("qrh({and_v(v:pk(In),older(9)),and_v(v:pk(hA),pk(S))})")
+        Descriptor::<String>::from_str("tsh({and_v(v:pk(In),older(9)),and_v(v:pk(hA),pk(S))})")
             .unwrap();
-    assert_eq!(desc, expected_desc, "failed to compile qrh descriptor");
+    assert_eq!(desc, expected_desc, "failed to compile tsh descriptor");
 
     // Check whether the descriptors are safe.
     assert!(desc.sanity_check().is_ok());
 
     // Descriptor type and version should match respectively for taproot
     let desc_type = desc.desc_type();
-    assert_eq!(desc_type, DescriptorType::Qrh);
+    assert_eq!(desc_type, DescriptorType::Tsh);
     assert_eq!(desc_type.segwit_version().unwrap(), WitnessVersion::V3);
 
-    if let Descriptor::Qrh(ref p) = desc {
+    if let Descriptor::Tsh(ref p) = desc {
 
         // Iterate through scripts
         let mut iter = p.leaves();

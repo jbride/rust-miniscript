@@ -296,7 +296,7 @@ impl Plan {
             | DescriptorType::Wsh
             | DescriptorType::WshSortedMulti
             | DescriptorType::Tr => (stack, ScriptBuf::new()),
-            DescriptorType::Qrh => (stack, ScriptBuf::new()),
+            DescriptorType::Tsh => (stack, ScriptBuf::new()),
             DescriptorType::ShWsh | DescriptorType::ShWshSortedMulti | DescriptorType::ShWpkh => {
                 (stack, self.descriptor.unsigned_script_sig())
             }
@@ -416,7 +416,7 @@ impl Plan {
                 },
                 Descriptor::Wsh(wsh) => input.witness_script = Some(wsh.inner_script()),
                 Descriptor::Tr(_) => unreachable!("Tr is dealt with separately"),
-                Descriptor::Qrh(_) => unreachable!("Qrh is dealt with separately"),
+                Descriptor::Tsh(_) => unreachable!("Tsh is dealt with separately"),
             }
         }
     }

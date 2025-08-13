@@ -11,7 +11,7 @@ use core::{cmp, fmt, mem};
 use bitcoin::hashes::hash160;
 use bitcoin::key::XOnlyPublicKey;
 use bitcoin::taproot::{ControlBlock, LeafVersion, TapLeafHash, TapNodeHash};
-use bitcoin::p2qrh::P2qrhControlBlock;
+use bitcoin::p2tsh::P2tshControlBlock;
 use bitcoin::{absolute, relative, ScriptBuf, Sequence};
 use sync::Arc;
 
@@ -54,9 +54,9 @@ pub trait Satisfier<Pk: MiniscriptKey + ToPublicKey> {
         None
     }
 
-    fn lookup_qrh_control_block_map(
+    fn lookup_tsh_control_block_map(
         &self,
-    ) -> Option<&BTreeMap<P2qrhControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
+    ) -> Option<&BTreeMap<P2tshControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
         None
     }
 
@@ -613,7 +613,7 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     /// Taproot control block
     TapControlBlock(ControlBlock),
 
-    P2qrhContolBlock(P2qrhControlBlock)
+    P2tshContolBlock(P2tshControlBlock)
 }
 
 impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
@@ -647,9 +647,9 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
                 "TapControlBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
-            P2qrhContolBlock(control_block) => write!(
+            P2tshContolBlock(control_block) => write!(
                 f,
-                "P2qrhContolBlock(control_block: {})",
+                "P2tshContolBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
         }
@@ -711,7 +711,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
             Placeholder::PushOne => Some(vec![1]),
             Placeholder::TapScript(s) => Some(s.to_bytes()),
             Placeholder::TapControlBlock(cb) => Some(cb.serialize()),
-            Placeholder::P2qrhContolBlock(cb) => Some(cb.serialize()),
+            Placeholder::P2tshContolBlock(cb) => Some(cb.serialize()),
         }
     }
 }
