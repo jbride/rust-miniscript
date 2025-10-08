@@ -184,6 +184,10 @@ pub enum Terminal<Pk: MiniscriptKey, Ctx: ScriptContext> {
     Multi(Threshold<Pk, MAX_PUBKEYS_PER_MULTISIG>),
     /// `<key> CHECKSIG (<key> CHECKSIGADD)*(n-1) k NUMEQUAL`
     MultiA(Threshold<Pk, MAX_PUBKEYS_IN_CHECKSIGADD>),
+    /// `<32-byte-slh-dsa-key> OP_SUCCESS127` - Post-quantum signature validation
+    /// This uses OP_SUCCESS (0x7f) as defined in BIP-342 for tapscript upgrades.
+    /// The actual signature verification happens in consensus code.
+    SlhDsaPk(crate::descriptor::SlhDsaPublicKey),
 }
 
 impl<Pk: MiniscriptKey, Ctx: ScriptContext> Clone for Terminal<Pk, Ctx> {
@@ -242,6 +246,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Clone for Terminal<Pk, Ctx> {
             }
             Terminal::Multi(ref thresh) => Terminal::Multi(thresh.clone()),
             Terminal::MultiA(ref thresh) => Terminal::MultiA(thresh.clone()),
+            Terminal::SlhDsaPk(ref p) => Terminal::SlhDsaPk(p.clone()),
         }
     }
 }
@@ -261,6 +266,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> PartialEq for Terminal<Pk, Ctx> {
                 (Terminal::Hash160(h1), Terminal::Hash160(h2)) if h1 != h2 => return false,
                 (Terminal::Multi(th1), Terminal::Multi(th2)) if th1 != th2 => return false,
                 (Terminal::MultiA(th1), Terminal::MultiA(th2)) if th1 != th2 => return false,
+                (Terminal::SlhDsaPk(key1), Terminal::SlhDsaPk(key2)) if key1 != key2 => return false,
                 _ => {
                     if mem::discriminant(me) != mem::discriminant(you) {
                         return false;
@@ -294,6 +300,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> core::hash::Hash for Terminal<Pk, Ct
                 }
                 Terminal::Multi(th) => th.hash(hasher),
                 Terminal::MultiA(th) => th.hash(hasher),
+                Terminal::SlhDsaPk(key) => key.hash(hasher),
                 _ => {}
             }
         }

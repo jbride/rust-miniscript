@@ -32,6 +32,8 @@ pub enum Policy<Pk: MiniscriptKey> {
     Trivial,
     /// Signature and public key matching a given hash is required.
     Key(Pk),
+    /// A post-quantum SLH-DSA signature is required.
+    SlhDsaKey(crate::descriptor::SlhDsaPublicKey),
     /// An absolute locktime restriction.
     After(AbsLockTime),
     /// A relative locktime restriction.
@@ -114,6 +116,7 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
                 Unsatisfiable => Unsatisfiable,
                 Trivial => Trivial,
                 Key(ref pk) => t.pk(pk).map(Key)?,
+                SlhDsaKey(ref pk) => SlhDsaKey(*pk), // SlhDsaPublicKey is concrete, just copy it
                 Sha256(ref h) => t.sha256(h).map(Sha256)?,
                 Hash256(ref h) => t.hash256(h).map(Hash256)?,
                 Ripemd160(ref h) => t.ripemd160(h).map(Ripemd160)?,
@@ -229,6 +232,7 @@ impl<Pk: MiniscriptKey> fmt::Debug for Policy<Pk> {
             Policy::Unsatisfiable => f.write_str("UNSATISFIABLE()"),
             Policy::Trivial => f.write_str("TRIVIAL()"),
             Policy::Key(ref pkh) => write!(f, "pk({:?})", pkh),
+            Policy::SlhDsaKey(ref pk) => write!(f, "slh_dsa_pk({:?})", pk),
             Policy::After(n) => write!(f, "after({})", n),
             Policy::Older(n) => write!(f, "older({})", n),
             Policy::Sha256(ref h) => write!(f, "sha256({})", h),
@@ -254,6 +258,7 @@ impl<Pk: MiniscriptKey> fmt::Display for Policy<Pk> {
             Policy::Unsatisfiable => f.write_str("UNSATISFIABLE"),
             Policy::Trivial => f.write_str("TRIVIAL"),
             Policy::Key(ref pkh) => write!(f, "pk({})", pkh),
+            Policy::SlhDsaKey(ref pk) => write!(f, "slh_dsa_pk({})", pk),
             Policy::After(n) => write!(f, "after({})", n),
             Policy::Older(n) => write!(f, "older({})", n),
             Policy::Sha256(ref h) => write!(f, "sha256({})", h),
@@ -592,7 +597,7 @@ impl<Pk: MiniscriptKey> Policy<Pk> {
                 Unsatisfiable => None,
                 Trivial | After(..) | Older(..) | Sha256(..) | Hash256(..) | Ripemd160(..)
                 | Hash160(..) => Some(0),
-                Key(..) => Some(1),
+                Key(..) | SlhDsaKey(..) => Some(1),
                 Thresh(ref thresh) => {
                     let mut sublens = (0..thresh.n())
                         .filter_map(|_| minimum_n_keys.pop().unwrap())
@@ -654,7 +659,7 @@ impl<'a, Pk: MiniscriptKey> TreeLike for &'a Policy<Pk> {
         use Policy::*;
 
         match *self {
-            Unsatisfiable | Trivial | Key(_) | After(_) | Older(_) | Sha256(_) | Hash256(_)
+            Unsatisfiable | Trivial | Key(_) | SlhDsaKey(_) | After(_) | Older(_) | Sha256(_) | Hash256(_)
             | Ripemd160(_) | Hash160(_) => Tree::Nullary,
             Thresh(ref thresh) => Tree::Nary(thresh.data()),
         }
@@ -671,7 +676,7 @@ impl<'a, Pk: MiniscriptKey> TreeLike for &'a Arc<Policy<Pk>> {
         use Policy::*;
 
         match ***self {
-            Unsatisfiable | Trivial | Key(_) | After(_) | Older(_) | Sha256(_) | Hash256(_)
+            Unsatisfiable | Trivial | Key(_) | SlhDsaKey(_) | After(_) | Older(_) | Sha256(_) | Hash256(_)
             | Ripemd160(_) | Hash160(_) => Tree::Nullary,
             Thresh(ref thresh) => Tree::Nary(thresh.data()),
         }

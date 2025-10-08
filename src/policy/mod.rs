@@ -119,6 +119,9 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Liftable<Pk> for Miniscript<Pk, Ctx>
                 Terminal::PkK(ref pk) | Terminal::PkH(ref pk) => {
                     Arc::new(Semantic::Key(pk.clone()))
                 }
+                Terminal::SlhDsaPk(ref pk) => {
+                    Arc::new(Semantic::SlhDsaKey(*pk))
+                }
                 Terminal::RawPkH(ref _pkh) => {
                     return Err(Error::LiftError(LiftError::RawDescriptorLift))
                 }

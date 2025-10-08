@@ -458,6 +458,7 @@ impl Type {
             Terminal::False => Ok(Self::FALSE),
             Terminal::PkK(..) => Ok(Self::pk_k()),
             Terminal::PkH(..) | Terminal::RawPkH(..) => Ok(Self::pk_h()),
+            Terminal::SlhDsaPk(..) => Ok(Self::pk_k()), // Same type as pk_k
             Terminal::Multi(..) => Ok(Self::multi()),
             Terminal::MultiA(..) => Ok(Self::multi_a()),
             Terminal::After(_) => Ok(Self::time()),

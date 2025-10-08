@@ -116,6 +116,113 @@ fn main() {
     .unwrap()
     .assume_checked();
     assert_eq!(addr, expected_addr);
+
+    // ============================================================
+    // SLH-DSA Post-Quantum Cryptography Example
+    // ============================================================
+    println!("\n=== SLH-DSA Post-Quantum Example ===\n");
+    
+    slh_dsa_example();
+}
+
+/// Demonstrates the use of SLH-DSA (post-quantum cryptography) Terminal
+/// This creates a P2TSH descriptor with a leaf script: <slh-dsa-key> OP_SUCCESS127
+fn slh_dsa_example() {
+    // Example SLH-DSA public key (32 bytes, same size as XOnlyPublicKey)
+    // In production, this would come from bitcoinpqc::generate_keypair()
+    let slh_dsa_key_bytes: [u8; 32] = [
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+        0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+        0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
+    ];
+    
+    let slh_dsa_pubkey = XOnlyPublicKey::from_slice(&slh_dsa_key_bytes).unwrap();
+    println!("SLH-DSA Public Key: {}", slh_dsa_pubkey);
+
+    // Create a miniscript using the new slh_dsa_pk terminal
+    // This generates: <32-byte-key> OP_SUCCESS127 (0x7f)
+    let slh_dsa_ms: Miniscript<XOnlyPublicKey, Tap> = 
+        Miniscript::slh_dsa_pk(slh_dsa_pubkey);
+    
+    println!("SLH-DSA Miniscript: {}", slh_dsa_ms);
+    
+    // Get the compiled script
+    let script = slh_dsa_ms.encode();
+    println!("Script bytes: {}", script.to_hex_string());
+    println!("Script size: {} bytes", script.len());
+    
+    // Create a TapTree with the SLH-DSA leaf
+    use miniscript::descriptor::{TapTree, Tsh};
+    let tap_tree = TapTree::leaf(slh_dsa_ms);
+    let tsh_desc = Tsh::new(Some(tap_tree))
+        .expect("Failed to create P2TSH descriptor");
+    
+    println!("\nP2TSH Descriptor: {}", tsh_desc);
+    
+    // Get the address
+    let address = tsh_desc.address(Network::Regtest);
+    println!("P2TSH Address: {}", address);
+    
+    // Calculate satisfaction weight
+    // SLH-DSA signatures are ~7856 bytes (much larger than Schnorr's 64 bytes!)
+    match tsh_desc.max_weight_to_satisfy() {
+        Ok(weight) => {
+            println!("\nMaximum satisfaction weight: {} WU", weight.to_wu());
+            println!("  (This includes the large SLH-DSA signature: ~7857 bytes)");
+        }
+        Err(e) => println!("Error: {}", e),
+    }
+    
+    // Example 2: Hybrid approach - mixing traditional and post-quantum
+    println!("\n=== Hybrid Schnorr + SLH-DSA Example ===\n");
+    
+    let traditional_key = hardcoded_xonlypubkeys()[0];
+    
+    // Create traditional Schnorr leaf (pk wrapped in check)
+    let schnorr_ms: Miniscript<XOnlyPublicKey, Tap> = 
+        Miniscript::from_str(&format!("pk({})", traditional_key)).unwrap();
+    
+    println!("Schnorr Miniscript: {}", schnorr_ms);
+    println!("SLH-DSA Miniscript: {}", slh_dsa_ms);
+    
+    // Create two-leaf taptree
+    let left_tree = TapTree::leaf(schnorr_ms);
+    let right_tree = TapTree::leaf(slh_dsa_ms);
+    let hybrid_tree = TapTree::combine(left_tree, right_tree)
+        .expect("Failed to combine trees");
+    
+    let hybrid_tsh = Tsh::new(Some(hybrid_tree))
+        .expect("Failed to create hybrid P2TSH");
+    
+    println!("\nHybrid P2TSH Descriptor: {}", hybrid_tsh);
+    println!("  - Leaf 0 (depth 1): Traditional Schnorr signature");
+    println!("  - Leaf 1 (depth 1): Post-quantum SLH-DSA signature");
+    
+    let hybrid_address = hybrid_tsh.address(Network::Regtest);
+    println!("\nHybrid P2TSH Address: {}", hybrid_address);
+    
+    // Iterate through the leaves
+    println!("\nLeaves in hybrid taptree:");
+    for (idx, leaf) in hybrid_tsh.leaves().enumerate() {
+        println!("  Leaf {}: depth={}, script={}", 
+            idx, 
+            leaf.depth(), 
+            leaf.miniscript()
+        );
+    }
+    
+    println!("\n=== Benefits of This Approach ===");
+    println!("✓ Quantum-resistant: SLH-DSA protects against quantum attacks");
+    println!("✓ Hybrid option: Can mix traditional and PQ signatures");
+    println!("✓ Flexible: User chooses which leaf to spend");
+    println!("✓ Future-proof: Ready for post-quantum era");
+    
+    println!("\n=== Script Breakdown ===");
+    println!("Traditional: <schnorr-sig(64)> <pubkey(32)> CHECKSIG");
+    println!("SLH-DSA:     <slh-dsa-sig(7856)> <pubkey(32)> OP_SUCCESS127");
+    println!("\nOP_SUCCESS127 (0x7f) triggers immediate script success per BIP-342");
+    println!("Actual signature verification happens in consensus layer");
 }
 
 fn hardcoded_xonlypubkeys() -> Vec<XOnlyPublicKey> {

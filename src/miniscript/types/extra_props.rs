@@ -236,6 +236,24 @@ impl ExtData {
         }
     }
 
+    /// Extra properties for the `slh_dsa_pk` fragment - Post-quantum signatures.
+    /// Script: <32-byte-key> OP_SUCCESS127 (0x7f)
+    pub fn slh_dsa_pk<Ctx: ScriptContext>() -> Self {
+        ExtData {
+            pk_cost: 34, // 1 byte (OP_PUSHBYTES_32) + 32 bytes (key) + 1 byte (OP_SUCCESS127)
+            has_free_verify: false,
+            ops: OpLimits::new(0, Some(0), Some(0)), // OP_SUCCESS doesn't count as an op
+            stack_elem_count_sat: Some(1), // Just the signature
+            stack_elem_count_dissat: Some(1), // Empty signature for dissatisfaction
+            max_sat_size: Some((7857, 7857)), // SLH-DSA-128S signature (7856 bytes) + sighash byte
+            max_dissat_size: Some((1, 1)), // Empty signature
+            timelock_info: TimelockInfo::default(),
+            exec_stack_elem_count_sat: Some(1), // pushes the signature
+            exec_stack_elem_count_dissat: Some(1),
+            tree_height: 0,
+        }
+    }
+
     /// Extra properties for the `multi` fragment.
     pub fn multi(k: usize, n: usize) -> Self {
         let num_cost = match (k > 16, n > 16) {
@@ -934,6 +952,7 @@ impl ExtData {
             Terminal::False => Self::FALSE,
             Terminal::PkK(..) => Self::pk_k::<Ctx>(),
             Terminal::PkH(..) | Terminal::RawPkH(..) => Self::pk_h::<Ctx>(),
+            Terminal::SlhDsaPk(..) => Self::slh_dsa_pk::<Ctx>(),
             Terminal::Multi(ref thresh) => Self::multi(thresh.k(), thresh.n()),
             Terminal::MultiA(ref thresh) => Self::multi_a(thresh.k(), thresh.n()),
             Terminal::After(t) => Self::after(t),

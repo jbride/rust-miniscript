@@ -90,6 +90,21 @@ pub trait Satisfier<Pk: MiniscriptKey + ToPublicKey> {
         None
     }
 
+    /// Given a SLH-DSA public key, look up a post-quantum signature with that key.
+    ///
+    /// SLH-DSA (Stateless Hash-Based Digital Signature Algorithm) signatures are much larger
+    /// than ECDSA/Schnorr signatures (~7856 bytes for SLH-DSA-128S). The returned signature
+    /// should include the sighash byte as the final byte.
+    ///
+    /// This method is separate from the generic `Pk` signature lookups because `SlhDsaPublicKey`
+    /// is a concrete type that doesn't implement `MiniscriptKey` or `ToPublicKey`.
+    fn lookup_slh_dsa_sig(
+        &self,
+        _: &crate::descriptor::SlhDsaPublicKey,
+    ) -> Option<Vec<u8>> {
+        None
+    }
+
     /// Given a SHA256 hash, look up its preimage
     fn lookup_sha256(&self, _: &Pk::Sha256) -> Option<Preimage32> { None }
 
@@ -324,6 +339,10 @@ impl<Pk: MiniscriptKey + ToPublicKey, S: Satisfier<Pk>> Satisfier<Pk> for &S {
 
     fn lookup_hash160(&self, h: &Pk::Hash160) -> Option<Preimage32> { (**self).lookup_hash160(h) }
 
+    fn lookup_slh_dsa_sig(&self, pk: &crate::descriptor::SlhDsaPublicKey) -> Option<Vec<u8>> {
+        (**self).lookup_slh_dsa_sig(pk)
+    }
+
     fn check_older(&self, t: relative::LockTime) -> bool { (**self).check_older(t) }
 
     fn check_after(&self, n: absolute::LockTime) -> bool { (**self).check_after(n) }
@@ -383,6 +402,10 @@ impl<Pk: MiniscriptKey + ToPublicKey, S: Satisfier<Pk>> Satisfier<Pk> for &mut S
     }
 
     fn lookup_hash160(&self, h: &Pk::Hash160) -> Option<Preimage32> { (**self).lookup_hash160(h) }
+
+    fn lookup_slh_dsa_sig(&self, pk: &crate::descriptor::SlhDsaPublicKey) -> Option<Vec<u8>> {
+        (**self).lookup_slh_dsa_sig(pk)
+    }
 
     fn check_older(&self, t: relative::LockTime) -> bool { (**self).check_older(t) }
 
@@ -613,7 +636,10 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     /// Taproot control block
     TapControlBlock(ControlBlock),
 
-    P2tshContolBlock(P2tshControlBlock)
+    P2tshContolBlock(P2tshControlBlock),
+    /// SLH-DSA post-quantum signature (key and size)
+    /// Note: SlhDsaPublicKey is not part of the generic Pk system
+    SlhDsaSig(crate::descriptor::SlhDsaPublicKey, usize),
 }
 
 impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
@@ -652,6 +678,7 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
                 "P2tshContolBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
+            SlhDsaSig(pk, size) => write!(f, "SlhDsaSig(pk: {}, size: {})", pk, size),
         }
     }
 }
@@ -712,6 +739,10 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
             Placeholder::TapScript(s) => Some(s.to_bytes()),
             Placeholder::TapControlBlock(cb) => Some(cb.serialize()),
             Placeholder::P2tshContolBlock(cb) => Some(cb.serialize()),
+            Placeholder::SlhDsaSig(pk, size) => sat.lookup_slh_dsa_sig(pk).map(|s| {
+                debug_assert!(s.len() == *size);
+                s
+            }),
         }
     }
 }
@@ -1290,6 +1321,22 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfaction<Placeholder<Pk>> {
                 relative_timelock: None,
                 absolute_timelock: None,
             },
+            Terminal::SlhDsaPk(ref pk) => {
+                // SLH-DSA signatures are much larger (~7856 bytes) than ECDSA/Schnorr
+                // Look up the signature size using the AssetProvider method
+                let stack = if let Some(size) = stfr.provider_lookup_slh_dsa_sig(pk) {
+                    Witness::Stack(vec![Placeholder::SlhDsaSig(*pk, size)])
+                } else {
+                    // Signatures cannot be forged
+                    Witness::Impossible
+                };
+                Satisfaction {
+                    stack,
+                    has_sig: true,
+                    relative_timelock: None,
+                    absolute_timelock: None,
+                }
+            },
             Terminal::After(t) => {
                 let (stack, absolute_timelock) = if stfr.check_after(t.into()) {
                     (Witness::empty(), Some(t))
@@ -1629,6 +1676,13 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfaction<Placeholder<Pk>> {
                     Witness::push_0(),
                     Witness::pkh_public_key::<_, Ctx>(stfr, pkh),
                 ),
+                has_sig: false,
+                relative_timelock: None,
+                absolute_timelock: None,
+            },
+            Terminal::SlhDsaPk(..) => Satisfaction {
+                // Dissatisfaction for SLH-DSA is an empty signature
+                stack: Witness::push_0(),
                 has_sig: false,
                 relative_timelock: None,
                 absolute_timelock: None,

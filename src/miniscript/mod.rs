@@ -90,6 +90,7 @@ mod private {
                 let new_term = match item.node.node {
                     Terminal::PkK(ref p) => Terminal::PkK(p.clone()),
                     Terminal::PkH(ref p) => Terminal::PkH(p.clone()),
+                    Terminal::SlhDsaPk(ref p) => Terminal::SlhDsaPk(p.clone()),
                     Terminal::RawPkH(ref p) => Terminal::RawPkH(*p),
                     Terminal::After(ref n) => Terminal::After(*n),
                     Terminal::Older(ref n) => Terminal::Older(*n),
@@ -196,6 +197,20 @@ mod private {
                 node: Terminal::PkH(pk),
                 ty: types::Type::pk_h(),
                 ext: types::extra_props::ExtData::pk_h::<Ctx>(),
+                phantom: PhantomData,
+            }
+        }
+
+        /// The `slh_dsa_pk` combinator - Post-quantum signature scheme.
+        /// Encodes as: <32-byte-key> OP_SUCCESS127 (0x7f)
+        /// 
+        /// Takes a SLH-DSA (SPHINCS+) post-quantum public key which is just
+        /// a 32-byte value (not a secp256k1 curve point).
+        pub fn slh_dsa_pk(pk: crate::descriptor::SlhDsaPublicKey) -> Self {
+            Self {
+                node: Terminal::SlhDsaPk(pk),
+                ty: types::Type::pk_k(), // Same type properties as pk_k
+                ext: types::extra_props::ExtData::slh_dsa_pk::<Ctx>(),
                 phantom: PhantomData,
             }
         }
@@ -368,6 +383,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
                 Sha256(..) | Hash256(..) => 33 + 6,
 
                 Terminal::PkK(ref pk) => Ctx::pk_len(pk),
+                Terminal::SlhDsaPk(_) => 34, // 1 (OP_PUSHBYTES_32) + 32 (key) + 1 (OP_SUCCESS127)
                 Terminal::After(n) => script_num_size(n.to_consensus_u32() as usize) + 1,
                 Terminal::Older(n) => script_num_size(n.to_consensus_u32() as usize) + 1,
                 Terminal::Verify(ref sub) => usize::from(!sub.ext.has_free_verify),
@@ -649,6 +665,10 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> ForEachKey<Pk> for Miniscript<Pk, Ct
                         return false;
                     }
                 }
+                Terminal::SlhDsaPk(_) => {
+                    // SlhDsaPk holds a SlhDsaPublicKey, not a Pk, so we skip it
+                    // when iterating over keys of type Pk
+                }
                 // These branches cannot be combined since technically the two `thresh`es
                 // have different types (have different maximum values).
                 Terminal::Multi(ref thresh) => {
@@ -694,6 +714,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
             let new_term = match data.node.node {
                 Terminal::PkK(ref p) => Terminal::PkK(t.pk(p)?),
                 Terminal::PkH(ref p) => Terminal::PkH(t.pk(p)?),
+                Terminal::SlhDsaPk(ref p) => Terminal::SlhDsaPk(*p), // SlhDsaPublicKey is concrete, just copy it
                 Terminal::RawPkH(ref p) => Terminal::RawPkH(*p),
                 Terminal::After(n) => Terminal::After(n),
                 Terminal::Older(n) => Terminal::Older(n),
@@ -755,6 +776,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Miniscript<Pk, Ctx> {
             let new_term = match item.node.node {
                 Terminal::PkK(ref p) => Terminal::PkK(p.clone()),
                 Terminal::PkH(ref p) => Terminal::PkH(p.clone()),
+                Terminal::SlhDsaPk(ref p) => Terminal::SlhDsaPk(p.clone()),
                 // This algorithm is identical to Clone::clone except for this line.
                 Terminal::RawPkH(ref hash) => match pk_map.get(hash) {
                     Some(p) => Terminal::PkH(p.clone()),

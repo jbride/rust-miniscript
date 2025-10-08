@@ -36,6 +36,7 @@ impl<Pk: MiniscriptKey> ItemSize for Placeholder<Pk> {
             Placeholder::TapScript(s) => s.len(),
             Placeholder::TapControlBlock(cb) => cb.serialize().len(),
             Placeholder::P2tshContolBlock(cb) => cb.serialize().len(),
+            Placeholder::SlhDsaSig(_, size) => size + 1, // +1 for the OP_PUSH
         }
     }
 }

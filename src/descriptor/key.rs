@@ -16,6 +16,75 @@ use crate::prelude::*;
 use crate::serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::{hash256, MiniscriptKey, ToPublicKey};
 
+/// A 32-byte SLH-DSA (SPHINCS+) post-quantum public key.
+/// 
+/// This type represents a post-quantum signature public key from the SLH-DSA
+/// (SPHINCS+ based) signature scheme. Unlike secp256k1 keys, these are not
+/// elliptic curve points but rather arbitrary 32-byte values used in hash-based
+/// signature schemes.
+/// 
+/// These keys are used in tapscript with OP_SUCCESS127 for post-quantum security.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SlhDsaPublicKey([u8; 32]);
+
+impl SlhDsaPublicKey {
+    /// Create a new SLH-DSA public key from a 32-byte array.
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+    
+    /// Create a new SLH-DSA public key from a byte slice.
+    /// 
+    /// Returns an error if the slice is not exactly 32 bytes.
+    pub fn from_slice(bytes: &[u8]) -> Result<Self, SlhDsaKeyError> {
+        if bytes.len() != 32 {
+            return Err(SlhDsaKeyError::InvalidLength(bytes.len()));
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(bytes);
+        Ok(Self(arr))
+    }
+    
+    /// Get a reference to the underlying 32-byte array.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+    
+    /// Convert to a byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl fmt::Display for SlhDsaPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+/// Error type for SLH-DSA key operations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlhDsaKeyError {
+    /// Invalid key length (expected 32 bytes).
+    InvalidLength(usize),
+}
+
+impl fmt::Display for SlhDsaKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SlhDsaKeyError::InvalidLength(len) => {
+                write!(f, "Invalid SLH-DSA key length: expected 32 bytes, got {}", len)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl error::Error for SlhDsaKeyError {}
+
 /// The descriptor pubkey, either a single pubkey or an xpub.
 #[derive(Debug, Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub enum DescriptorPublicKey {

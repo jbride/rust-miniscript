@@ -86,6 +86,17 @@ pub trait AssetProvider<Pk: MiniscriptKey> {
         None
     }
 
+    /// Given a SLH-DSA public key, look up a post-quantum signature with that key.
+    ///
+    /// Returns the size of the signature if found. SLH-DSA-128S signatures are typically
+    /// 7857 bytes (7856 bytes + 1 sighash byte).
+    ///
+    /// This method is separate from the generic `Pk` signature lookups because `SlhDsaPublicKey`
+    /// is a concrete type that doesn't implement `MiniscriptKey`.
+    fn provider_lookup_slh_dsa_sig(&self, _: &crate::descriptor::SlhDsaPublicKey) -> Option<usize> {
+        None
+    }
+
     /// Given a SHA256 hash, look up its preimage, return whether we found it
     fn provider_lookup_sha256(&self, _: &Pk::Sha256) -> bool { false }
 
@@ -130,6 +141,7 @@ impl AssetProvider<DefiniteDescriptorKey> for LoggerAssetProvider<'_> {
     impl_log_method!(provider_lookup_raw_pkh_x_only_pk, hash: &hash160::Hash, -> Option<XOnlyPublicKey>);
     impl_log_method!(provider_lookup_raw_pkh_ecdsa_sig, hash: &hash160::Hash, -> Option<bitcoin::PublicKey>);
     impl_log_method!(provider_lookup_raw_pkh_tap_leaf_script_sig, hash: &(hash160::Hash, TapLeafHash), -> Option<(XOnlyPublicKey, usize)>);
+    impl_log_method!(provider_lookup_slh_dsa_sig, pk: &crate::descriptor::SlhDsaPublicKey, -> Option<usize>);
     impl_log_method!(provider_lookup_sha256, hash: &sha256::Hash, -> bool);
     impl_log_method!(provider_lookup_hash256, hash: &hash256::Hash, -> bool);
     impl_log_method!(provider_lookup_ripemd160, hash: &ripemd160::Hash, -> bool);
@@ -180,6 +192,10 @@ where
     ) -> Option<(XOnlyPublicKey, usize)> {
         Satisfier::lookup_raw_pkh_tap_leaf_script_sig(self, hash)
             .map(|(pk, sig)| (pk, sig.to_vec().len()))
+    }
+
+    fn provider_lookup_slh_dsa_sig(&self, pk: &crate::descriptor::SlhDsaPublicKey) -> Option<usize> {
+        Satisfier::lookup_slh_dsa_sig(self, pk).map(|sig| sig.len())
     }
 
     fn provider_lookup_sha256(&self, hash: &Pk::Sha256) -> bool {

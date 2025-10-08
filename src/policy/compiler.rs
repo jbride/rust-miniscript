@@ -448,6 +448,7 @@ impl CompilerExtData {
             Terminal::False => Self::FALSE,
             Terminal::PkK(..) => Self::pk_k::<Ctx>(),
             Terminal::PkH(..) | Terminal::RawPkH(..) => Self::pk_h::<Ctx>(),
+            Terminal::SlhDsaPk(..) => Self::pk_k::<Ctx>(), // Same properties as pk_k
             Terminal::Multi(ref thresh) => Self::multi(thresh.k(), thresh.n()),
             Terminal::MultiA(ref thresh) => Self::multi_a(thresh.k(), thresh.n()),
             Terminal::After(_) => Self::time(),

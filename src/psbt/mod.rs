@@ -333,6 +333,29 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for PsbtInputSatisfier<'_> {
             .map(|(pk, sig)| (*pk, *sig))
     }
 
+    fn lookup_slh_dsa_sig(
+        &self,
+        _pk: &crate::descriptor::SlhDsaPublicKey,
+    ) -> Option<Vec<u8>> {
+        // TODO: PSBT support for SLH-DSA signatures is not yet implemented in the bitcoin crate.
+        // SLH-DSA signatures could be stored in:
+        // - A new dedicated PSBT field (requires BIP proposal and bitcoin crate support)
+        // - PSBT proprietary fields (can be implemented by users as needed)
+        // 
+        // For now, users needing SLH-DSA PSBT support should:
+        // 1. Implement a custom Satisfier that reads from proprietary fields, or
+        // 2. Manually construct witnesses outside of the PSBT workflow
+        //
+        // Example custom satisfier:
+        // ```
+        // struct MySlhDsaSatisfier<'a> {
+        //     base: PsbtInputSatisfier<'a>,
+        //     slh_dsa_sigs: HashMap<SlhDsaPublicKey, Vec<u8>>,
+        // }
+        // ```
+        None
+    }
+
     fn check_after(&self, n: absolute::LockTime) -> bool {
         if !self.psbt.unsigned_tx.input[self.index].enables_lock_time() {
             return false;

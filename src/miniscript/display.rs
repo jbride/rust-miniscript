@@ -17,6 +17,7 @@ enum DisplayNode<'a, Pk: MiniscriptKey, Ctx: ScriptContext> {
     Node(Type, &'a Terminal<Pk, Ctx>),
     ThresholdK(usize),
     Key(&'a Pk),
+    SlhDsaKey(&'a crate::descriptor::SlhDsaPublicKey),
     RawKeyHash(&'a hash160::Hash),
     After(&'a crate::AbsLockTime),
     Older(&'a crate::RelLockTime),
@@ -130,6 +131,7 @@ impl<'a, Pk: MiniscriptKey, Ctx: ScriptContext> TreeLike for DisplayNode<'a, Pk,
                 Terminal::MultiA(ref thresh) => {
                     Tree::Nary(NaryChildren::Keys(thresh.k(), thresh.data()))
                 }
+                Terminal::SlhDsaPk(ref pk) => Tree::Unary(DisplayNode::SlhDsaKey(pk)),
             },
             // Only nodes have children; the rest are terminals.
             _ => Tree::Nullary,
@@ -204,6 +206,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
                 // Only nodes have a complicated algorithm. The other objects we just print.
                 (DisplayTypes::None, DisplayNode::ThresholdK(ref k)) => fmt::Display::fmt(k, f)?,
                 (DisplayTypes::None, DisplayNode::Key(ref pk)) => fmt::Display::fmt(pk, f)?,
+                (DisplayTypes::None, DisplayNode::SlhDsaKey(ref pk)) => fmt::Display::fmt(pk, f)?,
                 (DisplayTypes::None, DisplayNode::RawKeyHash(ref h)) => fmt::Display::fmt(h, f)?,
                 (DisplayTypes::None, DisplayNode::After(ref t)) => fmt::Display::fmt(t, f)?,
                 (DisplayTypes::None, DisplayNode::Older(ref t)) => fmt::Display::fmt(t, f)?,
@@ -213,6 +216,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
                 (DisplayTypes::None, DisplayNode::Hash160(ref h)) => fmt::Display::fmt(h, f)?,
                 (_, DisplayNode::ThresholdK(ref k)) => fmt::Debug::fmt(k, f)?,
                 (_, DisplayNode::Key(ref pk)) => fmt::Debug::fmt(pk, f)?,
+                (_, DisplayNode::SlhDsaKey(ref pk)) => fmt::Debug::fmt(pk, f)?,
                 (_, DisplayNode::RawKeyHash(ref h)) => fmt::Debug::fmt(h, f)?,
                 (_, DisplayNode::After(ref t)) => fmt::Debug::fmt(t, f)?,
                 (_, DisplayNode::Older(ref t)) => fmt::Debug::fmt(t, f)?,
@@ -272,6 +276,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
             Terminal::Thresh(..) => "thresh",
             Terminal::Multi(..) => "multi",
             Terminal::MultiA(..) => "multi_a",
+            Terminal::SlhDsaPk(..) => "slh_dsa_pk",
         }
     }
 
@@ -336,6 +341,7 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Ord for Terminal<Pk, Ctx> {
                         }
                         (DisplayNode::ThresholdK(me), DisplayNode::ThresholdK(you)) => me.cmp(&you),
                         (DisplayNode::Key(me), DisplayNode::Key(you)) => me.cmp(you),
+                        (DisplayNode::SlhDsaKey(me), DisplayNode::SlhDsaKey(you)) => me.cmp(you),
                         (DisplayNode::RawKeyHash(me), DisplayNode::RawKeyHash(you)) => me.cmp(you),
                         (DisplayNode::After(me), DisplayNode::After(you)) => me.cmp(you),
                         (DisplayNode::Older(me), DisplayNode::Older(you)) => me.cmp(you),

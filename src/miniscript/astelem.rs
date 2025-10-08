@@ -175,6 +175,14 @@ impl<Pk: MiniscriptKey, Ctx: ScriptContext> Terminal<Pk, Ctx> {
                     .push_int(thresh.k() as i64)
                     .push_opcode(opcodes::all::OP_NUMEQUAL)
             }
+            Terminal::SlhDsaPk(ref pk) => {
+                // Encode as: <32-byte-key> OP_SUCCESS127 (0x7f)
+                // OP_SUCCESS opcodes cause immediate script success per BIP-342
+                // Push the raw 32 bytes directly since SLH-DSA keys are not secp256k1 keys
+                builder
+                    .push_slice(pk.as_bytes())
+                    .push_opcode(opcodes::all::OP_SUBSTR) // 0x7f - repurposed as OP_SUCCESS127
+            }
         }
     }
 }
