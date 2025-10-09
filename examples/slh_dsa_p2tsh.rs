@@ -23,7 +23,7 @@ use bitcoin::p2tsh::{P2tshScriptBuf, P2tshBuilder, P2tshSpendInfo};
 use bitcoin::taproot::{TapNodeHash, TapTree as BitcoinTapTree, TapLeafHash};
 use bitcoin::hex::DisplayHex;
 use miniscript::descriptor::{Tsh, TapTree, SlhDsaPublicKey};
-use miniscript::{Miniscript, Tap, Satisfier, MiniscriptKey, ToPublicKey};
+use miniscript::{Miniscript, Tap, Satisfier, MiniscriptKey, ToPublicKey, NoSecp256k1Key};
 use miniscript::plan::AssetProvider;
 
 // Add bitcoinpqc imports
@@ -84,8 +84,15 @@ fn generate_demo_schnorr_key(secp: &Secp256k1<bitcoin::secp256k1::All>) -> XOnly
 fn single_leaf_via_miniscript(slh_dsa_key: SlhDsaPublicKey) -> Address {
     println!("\n=== Single-Leaf P2TSH via Miniscript ===");
     
-    // This creates a script: <32-byte-slh-dsa-key> OP_SUCCESS127
-    let ms: Miniscript<XOnlyPublicKey, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+    // Create a Miniscript that compiles to: <32-byte-slh-dsa-key> OP_SUCCESS127
+    //
+    // Note: NoSecp256k1Key is a placeholder type parameter for Miniscript<Pk, Ctx>
+    // - The slh_dsa_pk() method uses the concrete SlhDsaPublicKey type internally
+    // - NoSecp256k1Key satisfies the MiniscriptKey trait requirement without providing
+    //   actual secp256k1 key functionality
+    // - This makes the code self-documenting: it clearly indicates this miniscript
+    //   contains only post-quantum keys, no secp256k1 keys
+    let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
     
     println!("\nMiniscript: {}", ms);
     println!("Miniscript (debug): {:?}", ms);
@@ -215,7 +222,11 @@ fn demonstrate_multi_leaf_p2tsh(secp: &Secp256k1<bitcoin::secp256k1::All>, demo_
 
 /// Create multi-leaf P2TSH using miniscript
 fn create_multi_leaf_miniscript(schnorr_key: XOnlyPublicKey, slh_dsa_key: SlhDsaPublicKey) -> Address {
+    
     // Create two miniscripts
+    // Note: When mixing Schnorr and SLH-DSA leaves in the same tree, we use XOnlyPublicKey
+    // as the common type parameter since TapTree requires all leaves to have the same Pk type.
+    // For SLH-DSA, this is just a placeholder - the actual key is the concrete SlhDsaPublicKey.
     let ms_schnorr: Miniscript<XOnlyPublicKey, Tap> = 
         Miniscript::from_ast(miniscript::Terminal::Check(
             std::sync::Arc::new(Miniscript::from_ast(
@@ -323,7 +334,14 @@ fn demonstrate_satisfier_trait(slh_dsa_keypair: &KeyPair, slh_dsa_key: SlhDsaPub
     println!("This demonstrates automatic witness building using the extended Satisfier trait\n");
     
     // Create a miniscript with SLH-DSA
-    let ms: Miniscript<XOnlyPublicKey, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+    //
+    // Note: NoSecp256k1Key is a placeholder type parameter for Miniscript<Pk, Ctx>
+    // - The slh_dsa_pk() method uses the concrete SlhDsaPublicKey type internally
+    // - NoSecp256k1Key satisfies the MiniscriptKey trait requirement without providing
+    //   actual secp256k1 key functionality
+    // - This makes the code self-documenting: it clearly indicates this miniscript
+    //   contains only post-quantum keys, no secp256k1 keys
+    let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
     println!("Miniscript: {}", ms);
     
     // Create a dummy message to sign

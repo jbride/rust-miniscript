@@ -321,17 +321,17 @@ A dedicated `DisplayNode::SlhDsaKey` variant was added to handle the concrete `S
 ### Creating a P2TSH Descriptor with SLH-DSA
 
 ```rust
-use miniscript::{Miniscript, Tap};
+use miniscript::{Miniscript, Tap, NoSecp256k1Key};
 use miniscript::descriptor::{Tsh, TapTree, SlhDsaPublicKey};
-use bitcoin::{Network, XOnlyPublicKey};
+use bitcoin::Network;
 
 // Create a SlhDsaPublicKey from a 32-byte array
 let key_bytes: [u8; 32] = /* your 32-byte SLH-DSA public key */;
 let slh_dsa_key = SlhDsaPublicKey::from_bytes(key_bytes);
 
 // Create a miniscript with SLH-DSA public key
-// Note: XOnlyPublicKey is the generic Pk type, but slh_dsa_pk uses concrete SlhDsaPublicKey
-let ms: Miniscript<XOnlyPublicKey, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+// Note: NoSecp256k1Key is a placeholder type since slh_dsa_pk uses concrete SlhDsaPublicKey
+let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
 
 // Use in a taptree for P2TSH
 let tsh = Tsh::new(Some(TapTree::leaf(ms)))?;
@@ -383,6 +383,49 @@ pub enum SlhDsaKeyError {
     InvalidLength(usize),
 }
 ```
+
+## NoSecp256k1Key Placeholder Type
+
+**Location:** `src/lib.rs:216-246`
+
+The `NoSecp256k1Key` type is a placeholder used as the generic `Pk` parameter in `Miniscript<Pk, Ctx>` when the miniscript contains only post-quantum or other non-secp256k1 keys:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NoSecp256k1Key;
+
+impl MiniscriptKey for NoSecp256k1Key {
+    type Sha256 = sha256::Hash;
+    type Hash256 = hash256::Hash;
+    type Ripemd160 = ripemd160::Hash;
+    type Hash160 = hash160::Hash;
+}
+```
+
+**Purpose:**
+- Serves as a type-safe placeholder for `Miniscript<Pk, Ctx>` when SLH-DSA keys are used
+- Makes code more self-documenting than using arbitrary secp256k1 key types
+- Satisfies the `MiniscriptKey` trait bound without providing actual key functionality
+
+**Usage:**
+
+**For pure SLH-DSA miniscripts (recommended):**
+```rust
+// Clear and explicit - indicates no secp256k1 keys are used
+let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+let tree = TapTree::leaf(ms);
+let tsh = Tsh::new(Some(tree))?;
+```
+
+**For mixed trees combining Schnorr and SLH-DSA leaves:**
+```rust
+// When mixing key types, use XOnlyPublicKey since TapTree requires a single Pk type
+let ms_schnorr: Miniscript<XOnlyPublicKey, Tap> = /* ... */;
+let ms_slh_dsa: Miniscript<XOnlyPublicKey, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+let tree = TapTree::combine(TapTree::leaf(ms_schnorr), TapTree::leaf(ms_slh_dsa))?;
+```
+
+**Note:** `NoSecp256k1Key` implements `ToPublicKey` with `unreachable!()` methods that should never be called in practice, since SLH-DSA operations use the concrete `SlhDsaPublicKey` type internally.
 
 ## Technical Details
 
@@ -447,6 +490,9 @@ The `Terminal::SlhDsaPk` variant uses a concrete `SlhDsaPublicKey` type rather t
 6. `src/miniscript/types/extra_props.rs` - Property calculations
 7. `src/miniscript/satisfy.rs` - Satisfier trait extension, Placeholder variant, blanket impls, and satisfaction logic
 8. `src/descriptor/key.rs` - `SlhDsaPublicKey` type definition
+9. `src/lib.rs` - `NoSecp256k1Key` placeholder type definition
+10. `examples/slh_dsa_p2tsh.rs` - Updated to use `NoSecp256k1Key`
+11. `examples/tsh.rs` - Updated to use `NoSecp256k1Key` and `SlhDsaPublicKey` properly
 9. `src/policy/semantic.rs` - Added `SlhDsaKey` policy variant
 10. `src/policy/mod.rs` - Added lifting from `Terminal::SlhDsaPk` to `Semantic::SlhDsaKey`
 11. `src/plan.rs` - AssetProvider trait extension for planning/analysis

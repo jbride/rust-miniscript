@@ -7,8 +7,9 @@ use miniscript::bitcoin::key::{Keypair, XOnlyPublicKey};
 use miniscript::bitcoin::secp256k1::rand;
 use miniscript::bitcoin::{Network, WitnessVersion};
 use miniscript::descriptor::DescriptorType;
+use miniscript::descriptor::SlhDsaPublicKey;
 use miniscript::policy::Concrete;
-use miniscript::{translate_hash_fail, Descriptor, Miniscript, Tap, Translator};
+use miniscript::{translate_hash_fail, Descriptor, Miniscript, Tap, Translator, NoSecp256k1Key};
 
 // Refer to https://github.com/sanket1729/adv_btc_workshop/blob/master/workshop.md#creating-a-taproot-descriptor
 // for a detailed explanation of the policy and it's compilation
@@ -128,7 +129,7 @@ fn main() {
 /// Demonstrates the use of SLH-DSA (post-quantum cryptography) Terminal
 /// This creates a P2TSH descriptor with a leaf script: <slh-dsa-key> OP_SUCCESS127
 fn slh_dsa_example() {
-    // Example SLH-DSA public key (32 bytes, same size as XOnlyPublicKey)
+    // Example SLH-DSA public key (32 bytes)
     // In production, this would come from bitcoinpqc::generate_keypair()
     let slh_dsa_key_bytes: [u8; 32] = [
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
@@ -137,12 +138,13 @@ fn slh_dsa_example() {
         0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
     ];
     
-    let slh_dsa_pubkey = XOnlyPublicKey::from_slice(&slh_dsa_key_bytes).unwrap();
+    let slh_dsa_pubkey = SlhDsaPublicKey::from_bytes(slh_dsa_key_bytes);
     println!("SLH-DSA Public Key: {}", slh_dsa_pubkey);
 
     // Create a miniscript using the new slh_dsa_pk terminal
     // This generates: <32-byte-key> OP_SUCCESS127 (0x7f)
-    let slh_dsa_ms: Miniscript<XOnlyPublicKey, Tap> = 
+    // Note: NoSecp256k1Key is a placeholder since SLH-DSA uses a concrete type
+    let slh_dsa_ms: Miniscript<NoSecp256k1Key, Tap> = 
         Miniscript::slh_dsa_pk(slh_dsa_pubkey);
     
     println!("SLH-DSA Miniscript: {}", slh_dsa_ms);

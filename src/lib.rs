@@ -213,6 +213,60 @@ impl MiniscriptKey for String {
     type Hash160 = String;
 }
 
+/// Placeholder key type for miniscripts that only contain non-secp256k1 keys.
+///
+/// This type is used as a generic parameter for `Miniscript<Pk, Ctx>` when the
+/// miniscript contains only post-quantum or other non-secp256k1 keys (like SLH-DSA).
+/// Since these keys use concrete types (e.g., `SlhDsaPublicKey`) rather than the
+/// generic `Pk` parameter, this placeholder satisfies the type system requirements
+/// without providing actual key functionality.
+///
+/// # Example
+/// ```
+/// use miniscript::{Miniscript, Tap, NoSecp256k1Key};
+/// use miniscript::descriptor::SlhDsaPublicKey;
+///
+/// let slh_dsa_key = SlhDsaPublicKey::from_bytes([0u8; 32]);
+/// let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NoSecp256k1Key;
+
+impl MiniscriptKey for NoSecp256k1Key {
+    type Sha256 = sha256::Hash;
+    type Hash256 = hash256::Hash;
+    type Ripemd160 = ripemd160::Hash;
+    type Hash160 = hash160::Hash;
+}
+
+impl fmt::Display for NoSecp256k1Key {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<no-secp256k1-key>")
+    }
+}
+
+impl ToPublicKey for NoSecp256k1Key {
+    /// This should never be called - NoSecp256k1Key is only a placeholder
+    fn to_public_key(&self) -> bitcoin::PublicKey {
+        unreachable!("NoSecp256k1Key::to_public_key() should never be called - this is a placeholder type for post-quantum keys")
+    }
+
+    /// This should never be called - NoSecp256k1Key is only a placeholder
+    fn to_x_only_pubkey(&self) -> bitcoin::secp256k1::XOnlyPublicKey {
+        unreachable!("NoSecp256k1Key::to_x_only_pubkey() should never be called - this is a placeholder type for post-quantum keys")
+    }
+
+    /// This should never be called - NoSecp256k1Key is only a placeholder
+    fn to_pubkeyhash(&self, _sig_type: SigType) -> hash160::Hash {
+        unreachable!("NoSecp256k1Key::to_pubkeyhash() should never be called - this is a placeholder type for post-quantum keys")
+    }
+
+    fn to_sha256(hash: &sha256::Hash) -> sha256::Hash { *hash }
+    fn to_hash256(hash: &hash256::Hash) -> hash256::Hash { *hash }
+    fn to_ripemd160(hash: &ripemd160::Hash) -> ripemd160::Hash { *hash }
+    fn to_hash160(hash: &hash160::Hash) -> hash160::Hash { *hash }
+}
+
 /// Trait describing public key types which can be converted to bitcoin pubkeys
 pub trait ToPublicKey: MiniscriptKey {
     /// Converts an object to a public key
