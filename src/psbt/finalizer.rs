@@ -107,7 +107,7 @@ fn construct_tap_witness(
     }
 }
 
-fn construct_tsh_witness(
+fn construct_mr_witness(
     spk: &Script,
     sat: &PsbtInputSatisfier,
     allow_mall: bool,
@@ -127,12 +127,12 @@ fn construct_tsh_witness(
             map.insert(hash, bitcoin_key);
         }
     }
-    assert!(spk.is_p2tsh());
+    assert!(spk.is_p2mr());
 
     // Next script spends
     let (mut min_wit, mut min_wit_len) = (None, None);
     if let Some(block_map) =
-        <PsbtInputSatisfier as Satisfier<XOnlyPublicKey>>::lookup_tsh_control_block_map(sat)
+        <PsbtInputSatisfier as Satisfier<XOnlyPublicKey>>::lookup_mr_control_block_map(sat)
     {
         for (control_block, (script, ver)) in block_map {
             if *ver != LeafVersion::TapScript {
@@ -481,8 +481,8 @@ fn finalize_input_helper<C: secp256k1::Verification>(
             let wit = construct_tap_witness(&spk, &sat, allow_mall)
                 .map_err(|e| Error::InputError(e, index))?;
             (wit, ScriptBuf::new())
-        } else if spk.is_p2tsh() {
-            let wit = construct_tsh_witness(&spk, &sat, allow_mall).map_err(|e| Error::InputError(e, index))?;
+        } else if spk.is_p2mr() {
+            let wit = construct_mr_witness(&spk, &sat, allow_mall).map_err(|e| Error::InputError(e, index))?;
             (wit, ScriptBuf::new())
         } else {
             // Get a descriptor for this input.

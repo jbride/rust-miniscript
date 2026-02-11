@@ -11,7 +11,7 @@ use core::{cmp, fmt, mem};
 use bitcoin::hashes::hash160;
 use bitcoin::key::XOnlyPublicKey;
 use bitcoin::taproot::{ControlBlock, LeafVersion, TapLeafHash, TapNodeHash};
-use bitcoin::p2tsh::P2tshControlBlock;
+use bitcoin::p2mr::P2mrControlBlock;
 use bitcoin::{absolute, relative, ScriptBuf, Sequence};
 use sync::Arc;
 
@@ -54,9 +54,9 @@ pub trait Satisfier<Pk: MiniscriptKey + ToPublicKey> {
         None
     }
 
-    fn lookup_tsh_control_block_map(
+    fn lookup_mr_control_block_map(
         &self,
-    ) -> Option<&BTreeMap<P2tshControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
+    ) -> Option<&BTreeMap<P2mrControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
         None
     }
 
@@ -636,7 +636,7 @@ pub enum Placeholder<Pk: MiniscriptKey> {
     /// Taproot control block
     TapControlBlock(ControlBlock),
 
-    P2tshContolBlock(P2tshControlBlock),
+    P2mrContolBlock(P2mrControlBlock),
     /// SLH-DSA post-quantum signature (key and size)
     /// Note: SlhDsaPublicKey is not part of the generic Pk system
     SlhDsaSig(crate::descriptor::SlhDsaPublicKey, usize),
@@ -673,9 +673,9 @@ impl<Pk: MiniscriptKey> fmt::Display for Placeholder<Pk> {
                 "TapControlBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
-            P2tshContolBlock(control_block) => write!(
+            P2mrContolBlock(control_block) => write!(
                 f,
-                "P2tshContolBlock(control_block: {})",
+                "P2mrContolBlock(control_block: {})",
                 bitcoin::consensus::encode::serialize_hex(&control_block.serialize())
             ),
             SlhDsaSig(pk, size) => write!(f, "SlhDsaSig(pk: {}, size: {})", pk, size),
@@ -738,7 +738,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Placeholder<Pk> {
             Placeholder::PushOne => Some(vec![1]),
             Placeholder::TapScript(s) => Some(s.to_bytes()),
             Placeholder::TapControlBlock(cb) => Some(cb.serialize()),
-            Placeholder::P2tshContolBlock(cb) => Some(cb.serialize()),
+            Placeholder::P2mrContolBlock(cb) => Some(cb.serialize()),
             Placeholder::SlhDsaSig(pk, size) => sat.lookup_slh_dsa_sig(pk).map(|s| {
                 debug_assert!(s.len() == *size);
                 s

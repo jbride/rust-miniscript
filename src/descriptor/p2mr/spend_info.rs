@@ -6,7 +6,7 @@
 //! needed for Taproot spends.
 //!
 
-use bitcoin::p2tsh::{P2tshControlBlock, P2TSH_LEAF_VERSION};
+use bitcoin::p2mr::{P2mrControlBlock, P2MR_LEAF_VERSION};
 use bitcoin::taproot::{LeafVersion, TapLeafHash, TapNodeHash, TaprootMerkleBranch};
 use bitcoin::{Script, ScriptBuf};
 
@@ -51,13 +51,13 @@ impl BitStack128 {
 ///
 /// Conceptually, this object is a copy of the Taproot tree with each leave annotated
 /// with extra information that can be used to compute its control block.
-pub struct TshSpendInfo<Pk: MiniscriptKey> {
+pub struct MrSpendInfo<Pk: MiniscriptKey> {
     /// The nodes of the tree, in pre-order, i.e. left-to-right depth-first order.
-    nodes: Vec<TshSpendInfoNode<Pk>>,
+    nodes: Vec<MrSpendInfoNode<Pk>>,
 }
 
-impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
-    fn nodes_from_tap_tree(tree: &super::TapTree<Pk>) -> Vec<TshSpendInfoNode<Pk>> {
+impl<Pk: ToPublicKey> MrSpendInfo<Pk> {
+    fn nodes_from_tap_tree(tree: &super::TapTree<Pk>) -> Vec<MrSpendInfoNode<Pk>> {
         let mut nodes = vec![];
         let mut parent_stack = Vec::with_capacity(128); // FIXME use ArrayVec here
         for leaf in tree.leaves() {
@@ -73,7 +73,7 @@ impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
                 // result. We set the "sibling hash" to a dummy value (specifically,
                 // `current_hash`, because it's convenient and the right type).
                 parent_stack.push((false, nodes.len()));
-                nodes.push(TshSpendInfoNode { sibling_hash: current_hash, leaf_data: None });
+                nodes.push(MrSpendInfoNode { sibling_hash: current_hash, leaf_data: None });
             }
             // If parent_stack.len() < depth then we pushed things onto the stack in
             // the previous step so that we now have equality. Meanwhile, it is
@@ -92,9 +92,9 @@ impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
             // the actual sibling hash. We do this for every node EXCEPT the root node,
             // whose "sibling hash" will then wind up being equal to the Merkle root
             // of the whole tree.
-            nodes.push(TshSpendInfoNode {
+            nodes.push(MrSpendInfoNode {
                 sibling_hash: current_hash,
-                leaf_data: Some(TshLeafData {
+                leaf_data: Some(MrLeafData {
                     script,
                     miniscript: Arc::clone(leaf.miniscript()),
                     leaf_hash,
@@ -133,14 +133,14 @@ impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
     }
 
     /// Constructs a [`TrSpendInfo`] for a [`super::Tr`].
-    pub fn from_tr(tr: &super::Tsh<Pk>) -> Self {
+    pub fn from_tr(tr: &super::Mr<Pk>) -> Self {
         
         let nodes = match tr.tap_tree() {
             Some(tree) => Self::nodes_from_tap_tree(tree),
             None => vec![],
         };
 
-        TshSpendInfo { nodes }
+        MrSpendInfo { nodes }
     }
 
     /// If this [`TrSpendInfo`] has an associated Taproot tree, return its Merkle root.
@@ -155,8 +155,8 @@ impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
     /// This yields the same leaves in the same order as [`super::Tr::leaves`] on the original
     /// [`super::Tr`]. However, in addition to yielding the leaves and their depths, it also
     /// yields their scripts, leafhashes, and control blocks.
-    pub fn leaves(&self) -> TshSpendInfoIter<Pk> {
-        TshSpendInfoIter {
+    pub fn leaves(&self) -> MrSpendInfoIter<Pk> {
+        MrSpendInfoIter {
             spend_info: self,
             index: 0,
             merkle_stack: Vec::with_capacity(128),
@@ -189,13 +189,13 @@ impl<Pk: ToPublicKey> TshSpendInfo<Pk> {
 
 /// An internal node of the spend
 #[derive(Debug)]
-struct TshSpendInfoNode<Pk: MiniscriptKey> {
+struct MrSpendInfoNode<Pk: MiniscriptKey> {
     sibling_hash: TapNodeHash,
-    leaf_data: Option<TshLeafData<Pk>>,
+    leaf_data: Option<MrLeafData<Pk>>,
 }
 
 #[derive(Debug)]
-struct TshLeafData<Pk: MiniscriptKey> {
+struct MrLeafData<Pk: MiniscriptKey> {
     script: ScriptBuf,
     miniscript: Arc<Miniscript<Pk, Tap>>,
     leaf_hash: TapLeafHash,
@@ -209,15 +209,15 @@ struct TshLeafData<Pk: MiniscriptKey> {
 ///
 /// This iterator goes over the leaves in the same order, yielding the data that actually
 /// goes on chain: their scripts, control blocks, etc.
-pub struct TshSpendInfoIter<'sp, Pk: MiniscriptKey> {
-    spend_info: &'sp TshSpendInfo<Pk>,
+pub struct MrSpendInfoIter<'sp, Pk: MiniscriptKey> {
+    spend_info: &'sp MrSpendInfo<Pk>,
     index: usize,
     merkle_stack: Vec<TapNodeHash>,
     done_left_stack: BitStack128,
 }
 
-impl<'sp, Pk: MiniscriptKey> Iterator for TshSpendInfoIter<'sp, Pk> {
-    type Item = TshSpendInfoIterItem<'sp, Pk>;
+impl<'sp, Pk: MiniscriptKey> Iterator for MrSpendInfoIter<'sp, Pk> {
+    type Item = MrSpendInfoIterItem<'sp, Pk>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.index < self.spend_info.nodes.len() {
@@ -246,11 +246,11 @@ impl<'sp, Pk: MiniscriptKey> Iterator for TshSpendInfoIter<'sp, Pk> {
                     }
                 }
 
-                return Some(TshSpendInfoIterItem {
+                return Some(MrSpendInfoIterItem {
                     script: &leaf.script,
                     miniscript: &leaf.miniscript,
                     leaf_hash: leaf.leaf_hash,
-                    control_block: P2tshControlBlock {
+                    control_block: P2mrControlBlock {
                         merkle_branch: TaprootMerkleBranch::try_from(merkle_stack)
                             .expect("merkle stack guaranteed to be within allowable length"),
                     },
@@ -266,14 +266,14 @@ impl<'sp, Pk: MiniscriptKey> Iterator for TshSpendInfoIter<'sp, Pk> {
 
 /// Item yielded from a [`TrSpendInfoIter`].
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct TshSpendInfoIterItem<'tr, Pk: MiniscriptKey> {
+pub struct MrSpendInfoIterItem<'tr, Pk: MiniscriptKey> {
     script: &'tr Script,
     miniscript: &'tr Arc<Miniscript<Pk, Tap>>,
     leaf_hash: TapLeafHash,
-    control_block: P2tshControlBlock,
+    control_block: P2mrControlBlock,
 }
 
-impl<'sp, Pk: MiniscriptKey> TshSpendInfoIterItem<'sp, Pk> {
+impl<'sp, Pk: MiniscriptKey> MrSpendInfoIterItem<'sp, Pk> {
     /// The Tapscript of this leaf.
     #[inline]
     pub fn script(&self) -> &'sp Script { self.script }
@@ -298,7 +298,7 @@ impl<'sp, Pk: MiniscriptKey> TshSpendInfoIterItem<'sp, Pk> {
     /// you wish to be forward-compatible with future versions supported by this
     /// library.
     #[inline]
-    pub fn leaf_version(&self) -> LeafVersion { LeafVersion::from_consensus(P2TSH_LEAF_VERSION).unwrap() }
+    pub fn leaf_version(&self) -> LeafVersion { LeafVersion::from_consensus(P2MR_LEAF_VERSION).unwrap() }
 
     /// The hash of this leaf.
     ///
@@ -318,11 +318,11 @@ impl<'sp, Pk: MiniscriptKey> TshSpendInfoIterItem<'sp, Pk> {
     /// return value of this method, or call [`Self::into_control_block`], and store the
     /// result in a separate container.
     #[inline]
-    pub fn control_block(&self) -> &P2tshControlBlock { &self.control_block }
+    pub fn control_block(&self) -> &P2mrControlBlock { &self.control_block }
 
     /// Extract the control block of this leaf, consuming `self`.
     #[inline]
-    pub fn into_control_block(self) -> P2tshControlBlock { self.control_block }
+    pub fn into_control_block(self) -> P2mrControlBlock { self.control_block }
 }
 
 #[cfg(test)]
@@ -359,7 +359,7 @@ mod tests {
         // Single-leaf tree
         let merkle_root = Some(TapNodeHash::from(zero_hash));
         ret.push((
-            format!("tsh(0)"),
+            format!("mr(0)"),
             ExpectedTree { merkle_root },
             vec![ExpectedLeaf {
                 leaf_hash: zero_hash,
@@ -374,7 +374,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tsh({{0,0}})"),
+            format!("mr({{0,0}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -397,7 +397,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tsh({{0,1}})"),
+            format!("mr({{0,1}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -420,7 +420,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tsh({{0,{{0,tv:0}}}})"),
+            format!("mr({{0,{{0,tv:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -462,7 +462,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tsh({{uuu:0,{{0,uu:0}}}})"),
+            format!("mr({{uuu:0,{{0,uu:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -510,7 +510,7 @@ mod tests {
                 .unwrap(),
         );
         ret.push((
-            format!("tsh({{{{0,{{uuu:0,0}}}},{{0,uu:0}}}})"),
+            format!("mr({{{{0,{{uuu:0,0}}}},{{0,uu:0}}}})"),
             ExpectedTree { merkle_root },
             vec![
                 ExpectedLeaf {
@@ -585,10 +585,10 @@ mod tests {
     fn spend_info_fixed_vectors() {
         for (s, tree, leaves) in test_cases() {
             println!("Testing: {}", s);
-            let tsh = s
-                .parse::<crate::descriptor::Tsh<bitcoin::PublicKey>>()
+            let mr = s
+                .parse::<crate::descriptor::Mr<bitcoin::PublicKey>>()
                 .unwrap();
-            let spend_info = tsh.spend_info();
+            let spend_info = mr.spend_info();
 
             assert_eq!(
                 spend_info.merkle_root(),

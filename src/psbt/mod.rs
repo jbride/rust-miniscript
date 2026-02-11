@@ -19,7 +19,7 @@ use bitcoin::secp256k1;
 use bitcoin::secp256k1::{Secp256k1, VerifyOnly};
 use bitcoin::sighash::{self, SighashCache};
 use bitcoin::taproot::{self, ControlBlock, LeafVersion, TapLeafHash};
-use bitcoin::p2tsh::P2tshControlBlock;
+use bitcoin::p2mr::P2mrControlBlock;
 use bitcoin::{absolute, bip32, relative, transaction, Script, ScriptBuf};
 
 use crate::miniscript::context::SigType;
@@ -296,10 +296,10 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for PsbtInputSatisfier<'_> {
         Some(&self.psbt_input().tap_scripts)
     }
 
-    fn lookup_tsh_control_block_map(
+    fn lookup_mr_control_block_map(
         &self,
-    ) -> Option<&BTreeMap<P2tshControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
-        Some(&self.psbt_input().tsh_scripts)
+    ) -> Option<&BTreeMap<P2mrControlBlock, (bitcoin::ScriptBuf, LeafVersion)>> {
+        Some(&self.psbt_input().mr_scripts)
     }
 
     fn lookup_raw_pkh_tap_leaf_script_sig(
@@ -862,7 +862,7 @@ impl PsbtExt for Psbt {
         let prevouts = bitcoin::sighash::Prevouts::All(&prevouts);
         let inp_spk =
             finalizer::get_scriptpubkey(self, idx).map_err(|_e| SighashError::MissingInputUtxo)?;
-        if inp_spk.is_p2tr() || inp_spk.is_p2tsh() {
+        if inp_spk.is_p2tr() || inp_spk.is_p2mr() {
             let hash_ty = inp
                 .sighash_type
                 .map(|sighash_type| sighash_type.taproot_hash_ty())
@@ -1054,7 +1054,7 @@ trait PsbtFields {
     fn tap_merkle_root(&mut self) -> Option<&mut Option<taproot::TapNodeHash>> { None }
 
     // Add this field to the PsbtFields trait
-    fn tsh_scripts(&mut self) -> Option<&mut BTreeMap<P2tshControlBlock, (ScriptBuf, LeafVersion)>> {
+    fn mr_scripts(&mut self) -> Option<&mut BTreeMap<P2mrControlBlock, (ScriptBuf, LeafVersion)>> {
         None
     }
 }
@@ -1087,8 +1087,8 @@ impl PsbtFields for psbt::Input {
         Some(&mut self.tap_merkle_root)
     }
 
-    fn tsh_scripts(&mut self) -> Option<&mut BTreeMap<P2tshControlBlock, (ScriptBuf, LeafVersion)>> {
-        Some(&mut self.tsh_scripts) // You'll need to add this field to psbt::Input
+    fn mr_scripts(&mut self) -> Option<&mut BTreeMap<P2mrControlBlock, (ScriptBuf, LeafVersion)>> {
+        Some(&mut self.mr_scripts) // You'll need to add this field to psbt::Input
     }
 }
 
@@ -1190,8 +1190,8 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
         if let Some(tap_tree) = item.tap_tree() {
             *tap_tree = spend_info.to_tap_tree();
         }
-    } else if let Descriptor::Tsh(ref tsh_derived) = &derived {
-        let spend_info = tsh_derived.spend_info();
+    } else if let Descriptor::Mr(ref mr_derived) = &derived {
+        let spend_info = mr_derived.spend_info();
         
         let xpub_map = &bip32_derivation.0;
         
@@ -1208,14 +1208,14 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
         for leaf_derived in spend_info.leaves() {
             let leaf_script = (ScriptBuf::from(leaf_derived.script()), leaf_derived.leaf_version());
             let tapleaf_hash = leaf_derived.leaf_hash();
-            if let Some(tap_scripts) = item.tsh_scripts() {
+            if let Some(tap_scripts) = item.mr_scripts() {
                 let control_block = leaf_derived.control_block().clone();
                 tap_scripts.insert(control_block, leaf_script);
             }
 
             // Associate each public key in this tapleaf with its corresponding tapleaf hash.
             // This mapping is essential for script path spending, allowing the wallet to know
-            // which keys can be used to sign which tapleaves in the P2TSH tree.
+            // which keys can be used to sign which tapleaves in the P2MR tree.
             // A single key can be used across multiple tapleaves, so we maintain a list of
             // tapleaf hashes for each key.
             for leaf_pk in leaf_derived.miniscript().iter_pk() {
@@ -1260,7 +1260,7 @@ fn update_item_with_descriptor_helper<F: PsbtFields>(
             },
             Descriptor::Wsh(wsh) => *item.witness_script() = Some(wsh.inner_script()),
             Descriptor::Tr(_) => unreachable!("Tr is dealt with separately"),
-            Descriptor::Tsh(_) => unreachable!("Tsh is dealt with separately"),
+            Descriptor::Mr(_) => unreachable!("Mr is dealt with separately"),
         }
     };
 

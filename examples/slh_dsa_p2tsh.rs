@@ -1,12 +1,12 @@
-//! SLH-DSA P2TSH Example
+//! SLH-DSA P2MR Example
 //!
-//! This example demonstrates how to create a P2TSH descriptor with SLH-DSA
+//! This example demonstrates how to create a P2MR descriptor with SLH-DSA
 //! post-quantum cryptography support using OP_SUCCESS127.
 //!
 //! The script created is: <32-byte-slh-dsa-key> OP_SUCCESS127 (0x7f)
 //!
 //! This example demonstrates:
-//! 1. Creating P2TSH addresses with SLH-DSA keys (miniscript vs bitcoin crate)
+//! 1. Creating P2MR addresses with SLH-DSA keys (miniscript vs bitcoin crate)
 //! 2. Multi-leaf taptrees combining Schnorr and SLH-DSA
 //! 3. **NEW: Custom Satisfier implementation for automatic witness building**
 //! 4. **NEW: Using the extended Satisfier trait with lookup_slh_dsa_sig()**
@@ -19,10 +19,10 @@ use std::str::FromStr;
 use std::collections::HashMap;
 
 use bitcoin::{Network, XOnlyPublicKey, ScriptBuf, Address};
-use bitcoin::p2tsh::{P2tshScriptBuf, P2tshBuilder, P2tshSpendInfo};
+use bitcoin::p2mr::{P2mrScriptBuf, P2mrBuilder, P2mrSpendInfo};
 use bitcoin::taproot::{TapNodeHash, TapTree as BitcoinTapTree, TapLeafHash};
 use bitcoin::hex::DisplayHex;
-use miniscript::descriptor::{Tsh, TapTree, SlhDsaPublicKey};
+use miniscript::descriptor::{Mr, TapTree, SlhDsaPublicKey};
 use miniscript::{Miniscript, Tap, Satisfier, MiniscriptKey, ToPublicKey, NoSecp256k1Key};
 use miniscript::plan::AssetProvider;
 
@@ -32,7 +32,7 @@ use bitcoin::secp256k1::rand::{thread_rng, RngCore};
 use bitcoin::secp256k1::Secp256k1;
 
 fn main() {
-    println!("=== SLH-DSA P2TSH Example ===\n");
+    println!("=== SLH-DSA P2MR Example ===\n");
 
     // Generate SLH-DSA keypair using bitcoinpqc
     let random_data = get_random_bytes(128);
@@ -54,10 +54,10 @@ fn main() {
     let schnorr_xonly_pub_key = generate_demo_schnorr_key(&secp);
     println!("\nSchnorr key: {}", schnorr_xonly_pub_key);
 
-    // Demonstrate single-leaf P2TSH using miniscript with SAME SLH-DSA key
+    // Demonstrate single-leaf P2MR using miniscript with SAME SLH-DSA key
     let address_miniscript = single_leaf_via_miniscript(slh_dsa_key);
     
-    // Demonstrate single-leaf P2TSH using low-level bitcoin crate with SAME SLH-DSA key
+    // Demonstrate single-leaf P2MR using low-level bitcoin crate with SAME SLH-DSA key
     let address_bitcoin_slh = single_leaf_via_bitcoin_crate(slh_dsa_pubkey_bytes);
     
     // Compare the two approaches
@@ -65,7 +65,7 @@ fn main() {
     
     print_spending_requirements();
     
-    demonstrate_multi_leaf_p2tsh(&secp, slh_dsa_key);
+    demonstrate_multi_leaf_p2mr(&secp, slh_dsa_key);
     
     demonstrate_satisfier_trait(&slh_dsa_keypair, slh_dsa_key);
 
@@ -80,9 +80,9 @@ fn generate_demo_schnorr_key(secp: &Secp256k1<bitcoin::secp256k1::All>) -> XOnly
         .expect("Failed to parse public key")
 }
 
-/// Demonstrate single-leaf P2TSH & SLH-DSA using miniscript high-level API
+/// Demonstrate single-leaf P2MR & SLH-DSA using miniscript high-level API
 fn single_leaf_via_miniscript(slh_dsa_key: SlhDsaPublicKey) -> Address {
-    println!("\n=== Single-Leaf P2TSH via Miniscript ===");
+    println!("\n=== Single-Leaf P2MR via Miniscript ===");
     
     // Create a Miniscript that compiles to: <32-byte-slh-dsa-key> OP_SUCCESS127
     //
@@ -107,23 +107,23 @@ fn single_leaf_via_miniscript(slh_dsa_key: SlhDsaPublicKey) -> Address {
     let tap_tree = TapTree::leaf(ms);
     println!("\nTapTree created with 1 leaf");
 
-    // Create a P2TSH descriptor
-    let tsh = Tsh::new(Some(tap_tree))
-        .expect("Failed to create Tsh descriptor");
+    // Create a P2MR descriptor
+    let mr = Mr::new(Some(tap_tree))
+        .expect("Failed to create Mr descriptor");
 
-    println!("\nP2TSH Descriptor: {}", tsh);
+    println!("\nP2MR Descriptor: {}", mr);
 
     // Get the script pubkey
-    let script_pubkey = tsh.script_pubkey();
+    let script_pubkey = mr.script_pubkey();
     println!("\nScript PubKey: {}", script_pubkey.as_script());
     println!("Script PubKey hex: {}", script_pubkey.as_script().to_hex_string());
 
     // Get the address (regtest for example)
-    let address = tsh.address(Network::Regtest);
-    println!("\nP2TSH Address (miniscript): {}", address);
+    let address = mr.address(Network::Regtest);
+    println!("\nP2MR Address (miniscript): {}", address);
 
     // Calculate maximum satisfaction weight
-    match tsh.max_weight_to_satisfy() {
+    match mr.max_weight_to_satisfy() {
         Ok(weight) => {
             println!("\nMaximum satisfaction weight: {} WU", weight.to_wu());
             println!("  (SLH-DSA signature: ~7856 bytes + script + control block)");
@@ -134,9 +134,9 @@ fn single_leaf_via_miniscript(slh_dsa_key: SlhDsaPublicKey) -> Address {
     address
 }
 
-/// Demonstrate single-leaf P2TSH using low-level bitcoin crate with SLH-DSA key
+/// Demonstrate single-leaf P2MR using low-level bitcoin crate with SLH-DSA key
 fn single_leaf_via_bitcoin_crate(slh_dsa_pubkey_bytes: &[u8]) -> Address {
-    println!("\n=== Single-Leaf P2TSH via Low-Level Bitcoin Crate ===");
+    println!("\n=== Single-Leaf P2MR via Low-Level Bitcoin Crate ===");
     
     // Build script manually: OP_PUSHBYTES_32 <32-byte-key> OP_SUCCESS127
     let mut slh_dsa_script_bytes = vec![0x20]; // OP_PUSHBYTES_32
@@ -146,22 +146,22 @@ fn single_leaf_via_bitcoin_crate(slh_dsa_pubkey_bytes: &[u8]) -> Address {
     
     println!("SLH-DSA leaf script: {}", slh_dsa_leaf_script.to_hex_string());
     
-    // Create P2tshBuilder with single leaf (weight 1) using SLH-DSA key
+    // Create P2mrBuilder with single leaf (weight 1) using SLH-DSA key
     let huffman_entries_slh = vec![(1u32, slh_dsa_leaf_script.clone())];
-    let p2tsh_builder_slh = P2tshBuilder::with_huffman_tree(huffman_entries_slh)
-        .expect("Failed to create P2tshBuilder");
+    let p2mr_builder_slh = P2mrBuilder::with_huffman_tree(huffman_entries_slh)
+        .expect("Failed to create P2mrBuilder");
     
     // Finalize to get spend info with merkle root
-    let p2tsh_spend_info_slh = p2tsh_builder_slh.finalize()
-        .expect("Failed to finalize P2tshBuilder");
-    let merkle_root_slh = p2tsh_spend_info_slh.merkle_root
+    let p2mr_spend_info_slh = p2mr_builder_slh.finalize()
+        .expect("Failed to finalize P2mrBuilder");
+    let merkle_root_slh = p2mr_spend_info_slh.merkle_root
         .expect("Expected merkle root");
     
     println!("Merkle root: {}", merkle_root_slh);
     
-    // Create P2TSH address from merkle root
-    let address = Address::p2tsh(Some(merkle_root_slh), Network::Regtest);
-    println!("P2TSH Address (bitcoin crate, SLH-DSA): {}", address);
+    // Create P2MR address from merkle root
+    let address = Address::p2mr(Some(merkle_root_slh), Network::Regtest);
+    println!("P2MR Address (bitcoin crate, SLH-DSA): {}", address);
     
     address
 }
@@ -179,7 +179,7 @@ fn compare_single_leaf_addresses(address_miniscript: Address, address_bitcoin: A
     }
 }
 
-/// Print requirements for spending a P2TSH output
+/// Print requirements for spending a P2MR output
 fn print_spending_requirements() {
     println!("\n=== To Spend This Output ===");
     println!("Witness required:");
@@ -188,8 +188,8 @@ fn print_spending_requirements() {
     println!("  3. Control block (merkle proof)");
 }
 
-/// Demonstrate multi-leaf P2TSH combining Schnorr and SLH-DSA
-fn demonstrate_multi_leaf_p2tsh(secp: &Secp256k1<bitcoin::secp256k1::All>, demo_slh_key: SlhDsaPublicKey) {
+/// Demonstrate multi-leaf P2MR combining Schnorr and SLH-DSA
+fn demonstrate_multi_leaf_p2mr(secp: &Secp256k1<bitcoin::secp256k1::All>, demo_slh_key: SlhDsaPublicKey) {
     println!("\n=== Multi-Leaf Example (Hybrid: Schnorr + SLH-DSA) ===");
     
     // Generate a proper Schnorr keypair using secp256k1
@@ -202,10 +202,10 @@ fn demonstrate_multi_leaf_p2tsh(secp: &Secp256k1<bitcoin::secp256k1::All>, demo_
     
     println!("Schnorr Public Key: {}", schnorr_key);
     
-    // Create multi-leaf P2TSH via miniscript
+    // Create multi-leaf P2MR via miniscript
     let address_miniscript = create_multi_leaf_miniscript(schnorr_key, demo_slh_key);
     
-    // Create the same multi-leaf P2TSH via low-level bitcoin crate
+    // Create the same multi-leaf P2MR via low-level bitcoin crate
     let address_bitcoin = create_multi_leaf_bitcoin_crate(schnorr_key, demo_slh_key);
     
     // Compare addresses
@@ -220,7 +220,7 @@ fn demonstrate_multi_leaf_p2tsh(secp: &Secp256k1<bitcoin::secp256k1::All>, demo_
     }
 }
 
-/// Create multi-leaf P2TSH using miniscript
+/// Create multi-leaf P2MR using miniscript
 fn create_multi_leaf_miniscript(schnorr_key: XOnlyPublicKey, slh_dsa_key: SlhDsaPublicKey) -> Address {
     
     // Create two miniscripts
@@ -247,18 +247,18 @@ fn create_multi_leaf_miniscript(schnorr_key: XOnlyPublicKey, slh_dsa_key: SlhDsa
     println!("  - Leaf 0: Traditional Schnorr (pk)");
     println!("  - Leaf 1: Post-quantum SLH-DSA");
     
-    let tsh_multi = Tsh::new(Some(combined_tree))
-        .expect("Failed to create multi-leaf Tsh");
+    let mr_multi = Mr::new(Some(combined_tree))
+        .expect("Failed to create multi-leaf Mr");
     
-    println!("\nMulti-leaf P2TSH Descriptor: {}", tsh_multi);
+    println!("\nMulti-leaf P2MR Descriptor: {}", mr_multi);
     
-    let address = tsh_multi.address(Network::Regtest);
-    println!("Multi-leaf P2TSH Address (miniscript): {}", address);
+    let address = mr_multi.address(Network::Regtest);
+    println!("Multi-leaf P2MR Address (miniscript): {}", address);
     
     address
 }
 
-/// Create multi-leaf P2TSH using low-level bitcoin crate
+/// Create multi-leaf P2MR using low-level bitcoin crate
 fn create_multi_leaf_bitcoin_crate(schnorr_key: XOnlyPublicKey, slh_dsa_key: SlhDsaPublicKey) -> Address {
     
     // Script 1: Schnorr - OP_PUSHBYTES_32 <32-byte-key> OP_CHECKSIG
@@ -276,25 +276,25 @@ fn create_multi_leaf_bitcoin_crate(schnorr_key: XOnlyPublicKey, slh_dsa_key: Slh
     println!("Schnorr leaf script: {}", schnorr_leaf_script.to_hex_string());
     println!("SLH-DSA leaf script: {}", slh_dsa_leaf_script.to_hex_string());
     
-    // Create P2tshBuilder with two leaves (using same keys as miniscript for comparison)
+    // Create P2mrBuilder with two leaves (using same keys as miniscript for comparison)
     let huffman_entries_multi = vec![
         (1u32, schnorr_leaf_script.clone()),
         (1u32, slh_dsa_leaf_script.clone()),
     ];
-    let p2tsh_builder_multi = P2tshBuilder::with_huffman_tree(huffman_entries_multi)
-        .expect("Failed to create multi-leaf P2tshBuilder");
+    let p2mr_builder_multi = P2mrBuilder::with_huffman_tree(huffman_entries_multi)
+        .expect("Failed to create multi-leaf P2mrBuilder");
     
     // Finalize to get spend info with merkle root
-    let p2tsh_spend_info_multi = p2tsh_builder_multi.finalize()
-        .expect("Failed to finalize multi-leaf P2tshBuilder");
-    let merkle_root_multi = p2tsh_spend_info_multi.merkle_root
+    let p2mr_spend_info_multi = p2mr_builder_multi.finalize()
+        .expect("Failed to finalize multi-leaf P2mrBuilder");
+    let merkle_root_multi = p2mr_spend_info_multi.merkle_root
         .expect("Expected merkle root");
     
     println!("Multi-leaf merkle root: {}", merkle_root_multi);
     
-    // Create P2TSH address from merkle root
-    let address = Address::p2tsh(Some(merkle_root_multi), Network::Regtest);
-    println!("Multi-leaf P2TSH Address (bitcoin crate): {}", address);
+    // Create P2MR address from merkle root
+    let address = Address::p2mr(Some(merkle_root_multi), Network::Regtest);
+    println!("Multi-leaf P2MR Address (bitcoin crate): {}", address);
     
     address
 }

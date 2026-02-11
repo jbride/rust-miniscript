@@ -1,6 +1,6 @@
 [package]
 name = "miniscript"
-version = "13.0.0-pqc-0.2"
+version = "13.0.0-p2mr-pqc-1.0"
 authors = ["Andrew Poelstra <apoelstra@wpsoftware.net>, Sanket Kanjalkar <sanket1729@gmail.com>"]
 license = "CC0-1.0"
 homepage = "https://github.com/rust-bitcoin/rust-miniscript/"
@@ -23,7 +23,7 @@ base64 = ["bitcoin/base64"]
 
 [dependencies]
 bech32 = { version = "0.11.0", default-features = false, features = ["alloc"] }
-bitcoin = { version = "0.32.6", default-features = false, registry = "kellnr-denver-space" }
+bitcoin = { package = "bitcoin-p2mr-pqc", version = "0.32.6-p2mr-pqc.1", default-features = false, registry = "kellnr-denver-space" }
 
 bitcoinpqc = { version="0.2.0", features = ["serde"] }
 
@@ -31,7 +31,7 @@ serde = { version = "1.0.103", optional = true }
 
 [dev-dependencies]
 serde_test = "1.0.147"
-bitcoin = { version = "0.32.6", features = ["base64"], registry = "kellnr-denver-space"  }
+bitcoin = { package = "bitcoin-p2mr-pqc", version = "0.32.6-p2mr-pqc.1", features = ["base64"], registry = "kellnr-denver-space" }
 secp256k1 = {version = "0.29.0", features = ["rand-std"]}
 
 [[example]]
@@ -57,7 +57,7 @@ name = "taproot"
 required-features = ["compiler","std"]
 
 [[example]]
-name = "tsh"
+name = "p2mr"
 required-features = ["compiler","std"]
 
 
@@ -75,8 +75,8 @@ path = "examples/taptree_of_horror/taptree_of_horror.rs"
 required-features = ["compiler"]
 
 [[example]]
-name = "tsh_taptree_of_horror"
-path = "examples/taptree_of_horror/tsh_taptree_of_horror.rs"
+name = "mr_taptree_of_horror"
+path = "examples/taptree_of_horror/mr_taptree_of_horror.rs"
 required-features = ["compiler"]
 
 [workspace]

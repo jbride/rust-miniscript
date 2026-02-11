@@ -45,24 +45,24 @@ fn main() {
     println!("pol_str = {}", pol_str);
 
     let pol = Concrete::<String>::from_str(&pol_str).unwrap();
-    let desc = pol.compile_tsh().unwrap();
+    let desc = pol.compile_mr().unwrap();
 
     println!("compileddesc = {}", desc);
 
     let expected_desc =
-        Descriptor::<String>::from_str("tsh({and_v(v:pk(In),older(9)),and_v(v:pk(hA),pk(S))})")
+        Descriptor::<String>::from_str("mr({and_v(v:pk(In),older(9)),and_v(v:pk(hA),pk(S))})")
             .unwrap();
-    assert_eq!(desc, expected_desc, "failed to compile tsh descriptor");
+    assert_eq!(desc, expected_desc, "failed to compile mr descriptor");
 
     // Check whether the descriptors are safe.
     assert!(desc.sanity_check().is_ok());
 
     // Descriptor type and version should match respectively for taproot
     let desc_type = desc.desc_type();
-    assert_eq!(desc_type, DescriptorType::Tsh);
+    assert_eq!(desc_type, DescriptorType::Mr);
     assert_eq!(desc_type.segwit_version().unwrap(), WitnessVersion::V3);
 
-    if let Descriptor::Tsh(ref p) = desc {
+    if let Descriptor::Mr(ref p) = desc {
 
         // Iterate through scripts
         let mut iter = p.leaves();
@@ -127,7 +127,7 @@ fn main() {
 }
 
 /// Demonstrates the use of SLH-DSA (post-quantum cryptography) Terminal
-/// This creates a P2TSH descriptor with a leaf script: <slh-dsa-key> OP_SUCCESS127
+/// This creates a P2MR descriptor with a leaf script: <slh-dsa-key> OP_SUCCESS127
 fn slh_dsa_example() {
     // Example SLH-DSA public key (32 bytes)
     // In production, this would come from bitcoinpqc::generate_keypair()
@@ -155,20 +155,20 @@ fn slh_dsa_example() {
     println!("Script size: {} bytes", script.len());
     
     // Create a TapTree with the SLH-DSA leaf
-    use miniscript::descriptor::{TapTree, Tsh};
+    use miniscript::descriptor::{TapTree, Mr};
     let tap_tree = TapTree::leaf(slh_dsa_ms);
-    let tsh_desc = Tsh::new(Some(tap_tree))
-        .expect("Failed to create P2TSH descriptor");
+    let mr_desc = Mr::new(Some(tap_tree))
+        .expect("Failed to create P2MR descriptor");
     
-    println!("\nP2TSH Descriptor: {}", tsh_desc);
+    println!("\nP2MR Descriptor: {}", mr_desc);
     
     // Get the address
-    let address = tsh_desc.address(Network::Regtest);
-    println!("P2TSH Address: {}", address);
+    let address = mr_desc.address(Network::Regtest);
+    println!("P2MR Address: {}", address);
     
     // Calculate satisfaction weight
     // SLH-DSA signatures are ~7856 bytes (much larger than Schnorr's 64 bytes!)
-    match tsh_desc.max_weight_to_satisfy() {
+    match mr_desc.max_weight_to_satisfy() {
         Ok(weight) => {
             println!("\nMaximum satisfaction weight: {} WU", weight.to_wu());
             println!("  (This includes the large SLH-DSA signature: ~7857 bytes)");
@@ -194,19 +194,19 @@ fn slh_dsa_example() {
     let hybrid_tree = TapTree::combine(left_tree, right_tree)
         .expect("Failed to combine trees");
     
-    let hybrid_tsh = Tsh::new(Some(hybrid_tree))
-        .expect("Failed to create hybrid P2TSH");
+    let hybrid_mr = Mr::new(Some(hybrid_tree))
+        .expect("Failed to create hybrid P2MR");
     
-    println!("\nHybrid P2TSH Descriptor: {}", hybrid_tsh);
+    println!("\nHybrid P2MR Descriptor: {}", hybrid_mr);
     println!("  - Leaf 0 (depth 1): Traditional Schnorr signature");
     println!("  - Leaf 1 (depth 1): Post-quantum SLH-DSA signature");
     
-    let hybrid_address = hybrid_tsh.address(Network::Regtest);
-    println!("\nHybrid P2TSH Address: {}", hybrid_address);
+    let hybrid_address = hybrid_mr.address(Network::Regtest);
+    println!("\nHybrid P2MR Address: {}", hybrid_address);
     
     // Iterate through the leaves
     println!("\nLeaves in hybrid taptree:");
-    for (idx, leaf) in hybrid_tsh.leaves().enumerate() {
+    for (idx, leaf) in hybrid_mr.leaves().enumerate() {
         println!("  Leaf {}: depth={}, script={}", 
             idx, 
             leaf.depth(), 

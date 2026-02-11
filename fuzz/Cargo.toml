@@ -13,7 +13,7 @@ cargo-fuzz = true
 honggfuzz = { version = "0.5.56", default-features = false }
 # We shouldn't need an explicit version on the next line, but Andrew's tools
 # choke on it otherwise. See https://github.com/nix-community/crate2nix/issues/373
-miniscript = { path = "..", features = [ "compiler" ], version = "=13.0.0-pqc-0.2" }
+miniscript = { path = "..", features = [ "compiler" ], version = "=13.0.0-p2mr-pqc-1.0" }
 old_miniscript = { package = "miniscript", features = [ "compiler" ], version = "12.3" }
 
 regex = "1.0"

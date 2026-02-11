@@ -1,8 +1,8 @@
-# SLH-DSA Post-Quantum Cryptography Integration for P2TSH
+# SLH-DSA Post-Quantum Cryptography Integration for P2MR
 
 ## Overview
 
-This document describes the integration of SLH-DSA (Stateless Hash-Based Digital Signature Algorithm) post-quantum cryptography into rust-miniscript for use with P2TSH (Pay-to-Taproot-Script-Hash) descriptors.
+This document describes the integration of SLH-DSA (Stateless Hash-Based Digital Signature Algorithm) post-quantum cryptography into rust-miniscript for use with P2MR (Pay-to-Taproot-Script-Hash) descriptors.
 
 ## Changes Made
 
@@ -193,7 +193,7 @@ impl<Pk: MiniscriptKey + ToPublicKey> Satisfier<Pk> for MySlhDsaSatisfier<'_> {
 The satisfaction/dissatisfaction logic becomes critical in these specific scenarios:
 
 ##### 1. Creating Spending Witnesses (Most Critical)
-The satisfaction logic is used when you need to **spend from a P2TSH output** containing an SLH-DSA key. When you call methods like:
+The satisfaction logic is used when you need to **spend from a P2MR output** containing an SLH-DSA key. When you call methods like:
 - `satisfy()` on a miniscript to build a witness stack
 - PSBT operations that automatically construct witnesses
 - Any wallet software trying to sign and spend transactions
@@ -287,7 +287,7 @@ let witness = Witness::from_slice(&[
 
 ##### Summary
 
-The satisfaction logic becomes critical **as soon as you try to spend** from a P2TSH output with SLH-DSA keys. 
+The satisfaction logic becomes critical **as soon as you try to spend** from a P2MR output with SLH-DSA keys. 
 
 **Current Status:**
 1. ✅ **Satisfier trait extended:** The `lookup_slh_dsa_sig` method allows custom satisfiers to provide signatures
@@ -316,13 +316,13 @@ The satisfaction logic becomes critical **as soon as you try to spend** from a P
 
 A dedicated `DisplayNode::SlhDsaKey` variant was added to handle the concrete `SlhDsaPublicKey` type separately from the generic key type.
 
-## Usage in P2TSH
+## Usage in P2MR
 
-### Creating a P2TSH Descriptor with SLH-DSA
+### Creating a P2MR Descriptor with SLH-DSA
 
 ```rust
 use miniscript::{Miniscript, Tap, NoSecp256k1Key};
-use miniscript::descriptor::{Tsh, TapTree, SlhDsaPublicKey};
+use miniscript::descriptor::{MR, TapTree, SlhDsaPublicKey};
 use bitcoin::Network;
 
 // Create a SlhDsaPublicKey from a 32-byte array
@@ -333,14 +333,14 @@ let slh_dsa_key = SlhDsaPublicKey::from_bytes(key_bytes);
 // Note: NoSecp256k1Key is a placeholder type since slh_dsa_pk uses concrete SlhDsaPublicKey
 let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
 
-// Use in a taptree for P2TSH
-let tsh = Tsh::new(Some(TapTree::leaf(ms)))?;
+// Use in a taptree for P2MR
+let mr = Mr::new(Some(TapTree::leaf(ms)))?;
 
 // Get the address
-let address = tsh.address(Network::Bitcoin);
+let address = mr.address(Network::Bitcoin);
 ```
 
-See `examples/slh_dsa_p2tsh.rs` for a complete working example including signature creation and multi-leaf taptrees.
+See `examples/slh_dsa_p2mr.rs` for a complete working example including signature creation and multi-leaf taptrees.
 
 ### Script Output
 
@@ -414,7 +414,7 @@ impl MiniscriptKey for NoSecp256k1Key {
 // Clear and explicit - indicates no secp256k1 keys are used
 let ms: Miniscript<NoSecp256k1Key, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
 let tree = TapTree::leaf(ms);
-let tsh = Tsh::new(Some(tree))?;
+let mr = Mr::new(Some(tree))?;
 ```
 
 **For mixed trees combining Schnorr and SLH-DSA leaves:**
@@ -491,14 +491,14 @@ The `Terminal::SlhDsaPk` variant uses a concrete `SlhDsaPublicKey` type rather t
 7. `src/miniscript/satisfy.rs` - Satisfier trait extension, Placeholder variant, blanket impls, and satisfaction logic
 8. `src/descriptor/key.rs` - `SlhDsaPublicKey` type definition
 9. `src/lib.rs` - `NoSecp256k1Key` placeholder type definition
-10. `examples/slh_dsa_p2tsh.rs` - Updated to use `NoSecp256k1Key`
-11. `examples/tsh.rs` - Updated to use `NoSecp256k1Key` and `SlhDsaPublicKey` properly
+10. `examples/slh_dsa_p2mr.rs` - Updated to use `NoSecp256k1Key`
+11. `examples/mr.rs` - Updated to use `NoSecp256k1Key` and `SlhDsaPublicKey` properly
 9. `src/policy/semantic.rs` - Added `SlhDsaKey` policy variant
 10. `src/policy/mod.rs` - Added lifting from `Terminal::SlhDsaPk` to `Semantic::SlhDsaKey`
 11. `src/plan.rs` - AssetProvider trait extension for planning/analysis
 12. `src/psbt/mod.rs` - PsbtInputSatisfier implementation (with TODO for PSBT field support)
 13. `src/util.rs` - Added `SlhDsaSig` placeholder size calculation
-14. `examples/slh_dsa_p2tsh.rs` - Example demonstrating P2TSH with SLH-DSA and custom Satisfier
+14. `examples/slh_dsa_p2mr.rs` - Example demonstrating P2MR with SLH-DSA and custom Satisfier
 
 ## Implementation Status
 
@@ -514,7 +514,7 @@ The `Terminal::SlhDsaPk` variant uses a concrete `SlhDsaPublicKey` type rather t
 8. **Satisfaction Logic:** Automatic witness building via custom satisfiers
 9. **Blanket Impl Updates:** `&S` and `&mut S` impls delegate `lookup_slh_dsa_sig` properly
 10. **Placeholder Support:** `Placeholder::SlhDsaSig` variant for template-based satisfaction
-11. **Examples:** `examples/slh_dsa_p2tsh.rs` demonstrates custom Satisfier implementation and usage
+11. **Examples:** `examples/slh_dsa_p2mr.rs` demonstrates custom Satisfier implementation and usage
 
 ### ⚠️ Partial/Limited
 

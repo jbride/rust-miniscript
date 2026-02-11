@@ -172,7 +172,7 @@ fn main() {
 
     // Create the policy descriptor
     let pol = Concrete::<DescriptorPublicKey>::from_str(&pol_str).unwrap();
-    let policy_desc: Descriptor<DescriptorPublicKey> = pol.compile_tsh().unwrap();
+    let policy_desc: Descriptor<DescriptorPublicKey> = pol.compile_mr().unwrap();
     //println!("\ndescriptor is: {}\n", policy_desc);
 
     // Get the derived descriptor at index 0 and log the script address
@@ -184,8 +184,8 @@ fn main() {
 
     // Print out the script of the highest probability spend path.
     // (which also happens to correspond to the same spend path that is satisfied at PSBT finalization time).
-    if let Descriptor::Tsh(tsh) = &derived_descriptor {
-        if let Some(tap_tree) = tsh.tap_tree() {
+    if let Descriptor::Mr(mr) = &derived_descriptor {
+        if let Some(tap_tree) = mr.tap_tree() {
             println!("\n=== Last Tap Tree Leaf ===");
             if let Some(last_leaf) = tap_tree.leaves().next_back() {
                 let leaf_script = last_leaf.miniscript().encode();
@@ -197,10 +197,10 @@ fn main() {
         }
     }
 
-    // Assert that the descriptor is a TSH descriptor
+    // Assert that the descriptor is a P2MR descriptor
     match &policy_desc {
-        Descriptor::Tsh(tsh) => {
-            assert!(tsh.tap_tree().is_some());
+        Descriptor::Mr(mr) => {
+            assert!(mr.tap_tree().is_some());
         }
         _ => panic!("tap tree is not correct"),
     }

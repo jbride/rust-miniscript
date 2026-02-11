@@ -3,7 +3,7 @@
 
 use bitcoin::hashes::{hash160, sha256, Hash};
 use bitcoin::taproot::{ControlBlock, TAPROOT_ANNEX_PREFIX};
-use bitcoin::p2tsh::P2tshControlBlock;
+use bitcoin::p2mr::P2mrControlBlock;
 use bitcoin::blockdata::opcodes;
 use bitcoin::Witness;
 
@@ -244,7 +244,7 @@ pub(super) fn from_txdata<'txin>(
                 }
             }
         }
-    } else if spk.is_p2tsh() {
+    } else if spk.is_p2mr() {
         if !ssig_stack.is_empty() {
             Err(Error::NonEmptyScriptSig)
         } else {
@@ -263,18 +263,18 @@ pub(super) fn from_txdata<'txin>(
             match wit_stack.len() {
                 0 => Err(Error::UnexpectedStackEnd),
                 _ => {
-                    // Script spend - P2TSH only supports script path
+                    // Script spend - P2MR only supports script path
                     let ctrl_blk = wit_stack.pop().ok_or(Error::UnexpectedStackEnd)?;
-                    let tsh_script = wit_stack.pop().ok_or(Error::UnexpectedStackEnd)?;
+                    let mr_script = wit_stack.pop().ok_or(Error::UnexpectedStackEnd)?;
         
-                    let tsh_script = script_from_stack_elem::<Tap>(&tsh_script)?;
-                    let ms = tsh_script.to_no_checks_ms();
-                    let tsh_script = tsh_script.encode();
+                    let mr_script = script_from_stack_elem::<Tap>(&mr_script)?;
+                    let ms = mr_script.to_no_checks_ms();
+                    let mr_script = mr_script.encode();
                     
                     Ok((
-                        Inner::Script(ms, ScriptType::Tr), // Use Tr for now, or add Tsh variant
+                        Inner::Script(ms, ScriptType::Tr), // Use Tr for now, or add Mr variant
                         wit_stack,
-                        Some(tsh_script),
+                        Some(mr_script),
                     ))
                 }
             }
