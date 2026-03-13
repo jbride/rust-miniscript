@@ -69,6 +69,8 @@ fn main() {
     
     demonstrate_satisfier_trait(&slh_dsa_keypair, slh_dsa_key);
 
+    demonstrate_policy_compile_with_slh_dsa(schnorr_xonly_pub_key, slh_dsa_key);
+
 }
 
 /// Generate a demo Schnorr key for miniscript demonstrations
@@ -395,5 +397,91 @@ fn get_random_bytes(size: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; size];
     thread_rng().fill_bytes(&mut bytes);
     bytes
+}
+
+// ============================================================
+// Policy compile + manual assembly workflow for hybrid Schnorr + SLH-DSA
+// ============================================================
+
+use miniscript::policy::Concrete;
+use miniscript::Translator;
+use miniscript::translate_hash_fail;
+
+/// Demonstrate compiling each leaf from its own policy, then assembling
+/// the P2MR taptree manually.
+///
+/// Schnorr leaves flow through the standard policy → miniscript → translate
+/// pipeline.  SLH-DSA leaves are constructed directly from the concrete key
+/// via `Miniscript::slh_dsa_pk()` and inserted into the same TapTree because
+/// the SLH-DSA public key is a concrete type, not a generic placeholder.
+///
+/// Steps:
+///   1. Compile the Schnorr leaf from a `pk(name)` policy string.
+///   2. Translate the placeholder name → `XOnlyPublicKey`.
+///   3. Build the SLH-DSA leaf directly as a Miniscript terminal.
+///   4. Combine both leaves into a TapTree and wrap in an `Mr` descriptor.
+///   5. Derive the P2MR address.
+fn demonstrate_policy_compile_with_slh_dsa(
+    schnorr_key: XOnlyPublicKey,
+    slh_dsa_key: SlhDsaPublicKey,
+) {
+    println!("\n=== Policy Compile + Manual Assembly: Schnorr + SLH-DSA ===\n");
+
+    // Step 1: compile the Schnorr leaf from a policy string.
+    // The placeholder "schnorr_key" is resolved in step 2.
+    let schnorr_policy_str = "pk(schnorr_key)";
+    println!("Schnorr policy:           {}", schnorr_policy_str);
+
+    let schnorr_pol = Concrete::<String>::from_str(schnorr_policy_str)
+        .expect("failed to parse Schnorr policy");
+
+    let schnorr_ms_str: Miniscript<String, Tap> = schnorr_pol
+        .compile()
+        .expect("failed to compile Schnorr policy");
+    println!("Compiled (String keys):   {}", schnorr_ms_str);
+
+    // Step 2: translate placeholder → concrete XOnlyPublicKey.
+    struct SchnorrTranslator {
+        pk_map: HashMap<String, XOnlyPublicKey>,
+    }
+    impl Translator<String> for SchnorrTranslator {
+        type TargetPk = XOnlyPublicKey;
+        type Error = String;
+        fn pk(&mut self, name: &String) -> Result<XOnlyPublicKey, String> {
+            self.pk_map.get(name).copied().ok_or_else(|| format!("unknown key: {}", name))
+        }
+        translate_hash_fail!(String, XOnlyPublicKey, String);
+    }
+
+    let mut t = SchnorrTranslator {
+        pk_map: [("schnorr_key".to_string(), schnorr_key)].into(),
+    };
+    let schnorr_ms: Miniscript<XOnlyPublicKey, Tap> = schnorr_ms_str
+        .translate_pk(&mut t)
+        .expect("failed to translate Schnorr key");
+    println!("Compiled (concrete keys): {}", schnorr_ms);
+
+    // Step 3: build the SLH-DSA leaf directly.
+    // Script encoding: OP_PUSHBYTES_32 <32-byte-key> OP_SUCCESS127
+    let slh_dsa_ms: Miniscript<XOnlyPublicKey, Tap> = Miniscript::slh_dsa_pk(slh_dsa_key);
+    println!("\nSLH-DSA miniscript:       {}", slh_dsa_ms);
+
+    // Step 4: assemble a two-leaf TapTree and create the Mr descriptor.
+    let schnorr_tree = TapTree::leaf(schnorr_ms);
+    let slh_dsa_tree = TapTree::leaf(slh_dsa_ms);
+    let hybrid_tree = TapTree::combine(schnorr_tree, slh_dsa_tree)
+        .expect("failed to combine taptree leaves");
+
+    let mr = Mr::new(Some(hybrid_tree)).expect("failed to create Mr descriptor");
+    println!("\nP2MR Descriptor: {}", mr);
+
+    // Step 5: derive the address.
+    let addr = mr.address(Network::Regtest);
+    println!("P2MR Address:    {}", addr);
+
+    println!("\nLeaves in taptree:");
+    for (idx, leaf) in mr.leaves().enumerate() {
+        println!("  Leaf {}: depth={}, script={}", idx, leaf.depth(), leaf.miniscript());
+    }
 }
 
